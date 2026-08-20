@@ -529,8 +529,15 @@ function allSkus(){ return $$('.sku',skuMasterEl); }
 function findSkuByCode(code){ return $$('.sku',skuMasterEl).find(function(s){ return s.getAttribute('data-sku')===code; }); }
 /* A UPC-A label reads as 12 digits on a USB scanner but 13 (leading zero) from the camera
    decoder, and some scanners strip it. Treat those forms as the same barcode. */
-function barcodeVariants(code){
+/* Master lists print barcodes the way a label does — "8-42426-19694-9" — while a scanner
+   sends "842426196949". Strip the separators from an all-digits code so the two are the
+   same barcode. Alphanumeric Code 128 codes are left exactly as they are. */
+function normBarcode(code){
   code=String(code||'').trim();
+  return /^[\d\s.-]+$/.test(code) ? code.replace(/\D/g,'') : code;
+}
+function barcodeVariants(code){
+  code=normBarcode(code);
   var out=[code];
   if(/^\d{13}$/.test(code) && code.charAt(0)==='0') out.push(code.slice(1));
   if(/^\d{12}$/.test(code)) out.push('0'+code);
@@ -539,11 +546,11 @@ function barcodeVariants(code){
   return out;
 }
 function findSkuByBarcode(code){
-  code=(code||'').trim(); if(!code) return null;
+  code=normBarcode(code); if(!code) return null;
   var variants=barcodeVariants(code);
   return $$('.sku',skuMasterEl).find(function(s){
     if(s.getAttribute('data-active')==='false') return false;
-    var codes=(s.getAttribute('data-barcodes')||'').split(',').map(function(x){return x.trim();});
+    var codes=(s.getAttribute('data-barcodes')||'').split(',').map(function(x){return normBarcode(x);});
     for(var i=0;i<variants.length;i++){
       if(codes.indexOf(variants[i])>-1) return true;
     }
@@ -1181,29 +1188,83 @@ function descHash(s){
   return h;
 }
 function autoSkuFromDesc(desc){ return 'ITM-'+descHash(desc).toString(36).toUpperCase().padStart(7,'0').slice(-7); }
-function findSkuByDesc(desc){
-  var n=normDesc(desc); if(!n) return null;
-  return allSkus().find(function(s){ return normDesc(s.getAttribute('data-desc'))===n; }) || null;
+/* An item code has to be unique and stable across re-imports. Two master-list rows can
+   share a description, flavour and size and differ only by barcode — fold the barcode in
+   so they get their own codes, and re-importing the same file reproduces them exactly. */
+function uniqueSkuCode(explicitSku, desc, flavor, size, barcode){
+  if(explicitSku) return explicitSku;
+  var base=autoSkuFromDesc(skuIdentity(desc,flavor,size));
+  if(!findSkuByCode(base)) return base;
+  if(barcode){
+    var withCode=autoSkuFromDesc(skuIdentity(desc,flavor,size)+' '+barcode);
+    if(!findSkuByCode(withCode)) return withCode;
+  }
+  var n=2, cand=base+'-'+n;
+  while(findSkuByCode(cand) && n<9999){ n++; cand=base+'-'+n; }
+  return cand;
+}
+function findSkuByDesc(desc, flavor, size){
+  var n=skuIdentity(desc, flavor, size); if(!n) return null;
+  var exact = allSkus().find(function(s){
+    return skuIdentity(s.getAttribute('data-desc'), skuFlavor(s), skuSize(s))===n;
+  });
+  if(exact) return exact;
+  // a packing slip carries no flavour column, so fall back to description alone — but only
+  // when that description belongs to exactly one product, never when flavours would collide
+  if(!flavor && !size){
+    var d=normDesc(desc);
+    var matches=allSkus().filter(function(s){ return normDesc(s.getAttribute('data-desc'))===d; });
+    if(matches.length===1) return matches[0];
+  }
+  return null;
 }
 function skuBarcodes(rec){
-  return (rec.getAttribute('data-barcodes')||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
+  return (rec.getAttribute('data-barcodes')||'').split(',').map(function(x){return normBarcode(x);}).filter(Boolean);
+}
+/* A product's identity is not its description alone. Two rows of a master list can carry
+   the same description and differ only in the flavour column — merging those into one
+   record loses a real product and makes both barcodes point at the wrong thing. */
+function skuFlavor(rec){ return (rec && rec.getAttribute('data-flavor')||'').trim(); }
+function skuSize(rec){ return (rec && rec.getAttribute('data-size')||'').trim(); }
+function skuIdentity(desc, flavor, size){
+  return normDesc([desc||'', flavor||'', size||''].join(' '));
+}
+/* What the operator should read when this product is scanned or picked from a list. */
+function skuLabel(rec){
+  if(!rec) return '';
+  var d=rec.getAttribute('data-desc')||'', f=skuFlavor(rec), z=skuSize(rec);
+  return d + (f? ' — '+f : '') + (z? ' · '+z : '');
 }
 /* ensure a master-catalogue record exists for a description (+optional code); returns it */
-function ensureMasterSku(desc, explicitSku, barcodes){
+function ensureMasterSku(desc, explicitSku, barcodes, flavor, size){
   var rec = explicitSku ? findSkuByCode(explicitSku) : null;
-  if(!rec) rec = findSkuByDesc(desc);
+  if(!rec) rec = findSkuByDesc(desc, flavor, size);
+  // A packing slip has no flavour column. If the catalogue already holds several flavours
+  // under this description, the slip line means "any of them" — reuse one rather than
+  // minting a flavourless duplicate that would sit in the catalogue forever.
+  if(!rec && !flavor && !size){
+    var d=normDesc(desc);
+    var sameDesc=allSkus().filter(function(x){ return normDesc(x.getAttribute('data-desc'))===d; });
+    if(sameDesc.length) rec=sameDesc[0];
+  }
   if(!rec){
     rec=document.createElement('div'); rec.className='sku';
     rec.setAttribute('data-rid', uid());
-    rec.setAttribute('data-sku', explicitSku || autoSkuFromDesc(desc));
+    rec.setAttribute('data-sku', explicitSku || autoSkuFromDesc(skuIdentity(desc,flavor,size)));
     rec.setAttribute('data-desc', desc||'');
-    rec.setAttribute('data-barcodes', (barcodes||[]).join(','));
+    if(flavor) rec.setAttribute('data-flavor', flavor);
+    if(size) rec.setAttribute('data-size', size);
+    rec.setAttribute('data-barcodes', (barcodes||[]).map(normBarcode).filter(Boolean).join(','));
     rec.setAttribute('data-active','true');
     skuMasterEl.appendChild(rec);
-  } else if(barcodes && barcodes.length){
-    var have=skuBarcodes(rec);
-    barcodes.forEach(function(b){ if(b && have.indexOf(b)<0) have.push(b); });
-    rec.setAttribute('data-barcodes', have.join(','));
+  } else {
+    if(flavor && !skuFlavor(rec)) rec.setAttribute('data-flavor', flavor);
+    if(size && !skuSize(rec)) rec.setAttribute('data-size', size);
+    if(barcodes && barcodes.length){
+      var have=skuBarcodes(rec);
+      barcodes.map(normBarcode).forEach(function(b){ if(b && have.indexOf(b)<0) have.push(b); });
+      rec.setAttribute('data-barcodes', have.join(','));
+    }
   }
   return rec;
 }
@@ -1799,7 +1860,7 @@ function renderEnrollPanel(sh){
     var has=itemHasBarcode(sku);
     return '<button class="enroll-opt" data-enroll-sku="'+esc(sku)+'">'+
         '<div style="min-width:0;flex:1;">'+
-          '<div class="enroll-desc">'+esc(l.getAttribute('data-desc')||sku)+'</div>'+
+          '<div class="enroll-desc">'+esc(skuLabel(findSkuByCode(sku)) || l.getAttribute('data-desc') || sku)+'</div>'+
           '<div class="enroll-meta">'+got+' of '+exp+' scanned'+(has?' · barcode already linked':'')+'</div>'+
         '</div>'+
         (has?'<span class="enroll-tag" style="background:#2a313b;color:#aeb7c2;">has barcode</span>':'<span class="enroll-tag" style="background:#3a2b0a;color:#f0c565;">needs barcode</span>')+
@@ -2080,6 +2141,7 @@ function flashAlert(kind, msg){
 }
 
 function performScanMutation(sh, code, user){
+  code = normBarcode(code);
   var skuRec = findSkuByBarcode(code);
   var ts=new Date().toISOString();
   var result, sku='';
@@ -2087,6 +2149,13 @@ function performScanMutation(sh, code, user){
   else{
     sku = skuRec.getAttribute('data-sku');
     var line = $$('.line',sh).find(function(l){ return l.getAttribute('data-sku')===sku; });
+    if(!line){
+      // The slip lists a description without naming the flavour; the box in your hand is
+      // one of them. Count it against that line rather than calling it "not on the slip".
+      var d=normDesc(skuRec.getAttribute('data-desc'));
+      line = $$('.line',sh).find(function(l){ return normDesc(l.getAttribute('data-desc'))===d; });
+      if(line) sku=line.getAttribute('data-sku');   // count against the line…
+    }
     if(!line){ result='unexpected'; }
     else{
       var exp=parseInt(line.getAttribute('data-expected')||'0',10);
@@ -2096,12 +2165,15 @@ function performScanMutation(sh, code, user){
   var scanlog=$('.scanlog',sh);
   var rec=document.createElement('div'); rec.className='scan';
   rec.setAttribute('data-rid',uid()); rec.setAttribute('data-sku',sku); rec.setAttribute('data-barcode',code);
+  // …but remember exactly which product was in the operator's hand, so a slip line that
+  // names no flavour still reports the flavours actually received
+  if(skuRec) rec.setAttribute('data-prodsku', skuRec.getAttribute('data-sku'));
   rec.setAttribute('data-user',user); rec.setAttribute('data-ts',ts); rec.setAttribute('data-result',result); rec.setAttribute('data-void','false');
   scanlog.appendChild(rec);
   if(sh.getAttribute('data-status')==='Open') sh.setAttribute('data-status','Receiving');
-  var descPart = skuRec? (' — '+skuRec.getAttribute('data-desc')) : '';
+  var descPart = skuRec? (' — '+skuLabel(skuRec)) : '';
   appendAuditRaw('scan', user+' scanned "'+code+'"'+(sku?' ('+sku+descPart+')':'')+' → '+result);
-  return {result:result, sku:sku, desc: skuRec?skuRec.getAttribute('data-desc'):''};
+  return {result:result, sku:sku, desc: skuRec? skuLabel(skuRec) : ''};
 }
 
 function rerenderDetail(sh){
@@ -2851,7 +2923,9 @@ function filteredSkus(){
     if(!q) return true;
     return (s.getAttribute('data-sku')||'').toLowerCase().indexOf(q)>-1 ||
            (s.getAttribute('data-desc')||'').toLowerCase().indexOf(q)>-1 ||
-           (s.getAttribute('data-barcodes')||'').toLowerCase().indexOf(q)>-1;
+           (s.getAttribute('data-barcodes')||'').toLowerCase().indexOf(q)>-1 ||
+           skuFlavor(s).toLowerCase().indexOf(q)>-1 ||
+           skuSize(s).toLowerCase().indexOf(q)>-1;
   }).sort(function(a,b){ return (a.getAttribute('data-desc')||'').localeCompare(b.getAttribute('data-desc')||''); });
 }
 function renderSkuRows(){
@@ -2861,13 +2935,15 @@ function renderSkuRows(){
     var codes=skuBarcodes(s);
     return '<tr style="'+(active?'':'opacity:.5;')+'">'+
       '<td><div>'+esc(s.getAttribute('data-desc'))+'</div><div class="small mono muted" style="margin-top:2px;">'+esc(s.getAttribute('data-sku'))+'</div></td>'+
+      '<td>'+(skuFlavor(s)? '<span class="pill" style="background:var(--accent-dim);color:var(--accent);">'+esc(skuFlavor(s))+'</span>':'<span class="small muted">—</span>')+
+        (skuSize(s)? '<div class="small muted" style="margin-top:3px;">'+esc(skuSize(s))+'</div>':'')+'</td>'+
       '<td class="mono small">'+(codes.length? esc(codes.join(', ')) : '<span style="color:var(--warn);font-weight:700;">— learns on first scan —</span>')+'</td>'+
       '<td>'+(active?'<span class="pill pill-match">Active</span>':'<span class="pill" style="background:var(--concrete);color:var(--slate);">Inactive</span>')+'</td>'+
       '<td class="row" style="gap:4px;">'+(isAdmin()?'<button class="btn-ghost btn-sm" data-edit-sku="'+esc(s.getAttribute('data-rid'))+'">Edit</button><button class="btn-ghost btn-sm" data-toggle-sku="'+esc(s.getAttribute('data-rid'))+'">'+(active?'Deactivate':'Reactivate')+'</button><button class="btn-ghost btn-sm" data-del-sku="'+esc(s.getAttribute('data-rid'))+'" title="Delete product">🗑</button>':'')+'</td>'+
     '</tr>';
   }).join('');
-  return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Product</th><th>Barcode(s)</th><th>Status</th><th></th></tr></thead><tbody>'+
-    (rows||'<tr><td colspan="4" class="empty">No products match your search.</td></tr>')+
+  return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Product</th><th>Flavour / size</th><th>Barcode(s)</th><th>Status</th><th></th></tr></thead><tbody>'+
+    (rows||'<tr><td colspan="5" class="empty">No products match your search.</td></tr>')+
     '</tbody></table></div></div>';
 }
 function wireSkuRows(){
@@ -2894,8 +2970,9 @@ function wireSkuMasterView(){
   var delAll=$('#btnDeleteAllSkus'); if(delAll) delAll.addEventListener('click', deleteAllSkus);
   wireSkuRows();
   var exp=$('#btnExportSkus'); if(exp) exp.addEventListener('click', function(){
-    var rows=[['SKU','Description','Barcodes','Active']];
-    allSkus().forEach(function(s){ rows.push([s.getAttribute('data-sku'), s.getAttribute('data-desc'), s.getAttribute('data-barcodes'), s.getAttribute('data-active')]); });
+    var rows=[['SKU','Description','Flavor','Size','Barcodes','Active']];
+    allSkus().forEach(function(s){ rows.push([s.getAttribute('data-sku'), s.getAttribute('data-desc'),
+      skuFlavor(s), skuSize(s), s.getAttribute('data-barcodes'), s.getAttribute('data-active')]); });
     downloadCSV('master-sku-database.csv', rows);
   });
   var imp=$('#skuImportFile'); if(imp) imp.addEventListener('change', function(ev){ importSkuCsv(ev.target.files[0]); ev.target.value=''; });
@@ -2912,6 +2989,8 @@ async function importSkuCsv(file){
   var barCol=findColLoose(headers,['barcode','upc','ean','gtin']);
   var descCol=findColLoose(headers,['description','desc','product','item']);
   var actCol=findColLoose(headers,['active','status']);
+  var flavCol=findColLoose(headers,['flavor','flavour','variety','strain']);
+  var sizeCol=findColLoose(headers,['size','pack','count','display','configuration']);
   if(skuCol<0 && descCol<0){
     toast('That file needs a Description or SKU column.','bad');
     if(progressEl0) progressEl0.innerHTML=''; return;
@@ -2922,37 +3001,75 @@ async function importSkuCsv(file){
     var sku=skuCol>=0? String(r[skuCol]||'').trim() : '';
     var desc=descCol>=0? String(r[descCol]||'').trim() : '';
     if(!sku && !desc) continue;
+    var flavor = flavCol>=0? String(r[flavCol]||'').trim() : '';
+    var size    = sizeCol>=0? String(r[sizeCol]||'').trim() : '';
     items.push({
-      sku: sku || autoSkuFromDesc(desc),
-      desc: desc,
-      barcodes: barCol>=0? String(r[barCol]||'').trim().replace(/[;|]/g,',') : '',
+      explicitSku: sku,
+      desc: desc, flavor: flavor, size: size,
+      barcodes: barCol>=0? String(r[barCol]||'').trim().replace(/[;|]/g,',')
+        .split(',').map(normBarcode).filter(Boolean).join(',') : '',
       active: actCol>=0? !/^(false|inactive|no|0)$/i.test(String(r[actCol]||'').trim()) : true
     });
   }
   if(!items.length){ toast('No product rows found in that file.','bad'); if(progressEl0) progressEl0.innerHTML=''; return; }
   var progressEl=$('#skuImportProgress');
+  /* ONE ROW OF THE MASTER LIST IS ONE PRODUCT. Never fold two rows into one record.
+     A master list often repeats the same description across dozens of rows that differ
+     only by flavour and barcode; matching on description alone collapsed all of them into
+     a single product carrying dozens of barcodes, so every one of those boxes scanned as
+     the same item. A barcode belongs to exactly one product — this import enforces that,
+     and repairs records that an earlier import had already merged. */
+  var claimed=Object.create(null);   // rid -> already taken by an earlier row in THIS file
+  var split=0, updated=0, created=0;
+  function unclaimedOrNull(rec){
+    if(!rec) return null;
+    return claimed[rec.getAttribute('data-rid')] ? null : rec;
+  }
   await bulkWrite(items, 40, function(it){
-    var existing=findSkuByCode(it.sku) || (it.desc? findSkuByDesc(it.desc) : null);
+    var codes=it.barcodes? it.barcodes.split(',').filter(Boolean) : [];
+    var existing = null;
+    // a barcode is the strongest identity the file gives us
+    for(var i=0;i<codes.length && !existing;i++) existing=unclaimedOrNull(findSkuByBarcode(codes[i]));
+    if(!existing && it.explicitSku) existing=unclaimedOrNull(findSkuByCode(it.explicitSku));
+    if(!existing && !codes.length && it.desc) existing=unclaimedOrNull(findSkuByDesc(it.desc, it.flavor, it.size));
+
     if(existing){
       if(it.desc) existing.setAttribute('data-desc', it.desc);
-      if(it.barcodes){
-        // keep barcodes already learned by scanning; add any new ones from the file
-        var have=skuBarcodes(existing);
-        it.barcodes.split(',').map(function(x){return x.trim();}).filter(Boolean).forEach(function(b){
-          if(have.indexOf(b)<0) have.push(b);
-        });
-        existing.setAttribute('data-barcodes', have.join(','));
-      }
+      if(it.flavor) existing.setAttribute('data-flavor', it.flavor);
+      if(it.size) existing.setAttribute('data-size', it.size);
       existing.setAttribute('data-active', it.active?'true':'false');
+      updated++;
     } else {
-      var rec=document.createElement('div'); rec.className='sku';
-      rec.setAttribute('data-rid',uid()); rec.setAttribute('data-sku',it.sku); rec.setAttribute('data-desc',it.desc);
-      rec.setAttribute('data-barcodes',it.barcodes); rec.setAttribute('data-active', it.active?'true':'false');
-      skuMasterEl.appendChild(rec);
+      existing=document.createElement('div'); existing.className='sku';
+      existing.setAttribute('data-rid',uid());
+      existing.setAttribute('data-sku', uniqueSkuCode(it.explicitSku, it.desc, it.flavor, it.size, codes[0]));
+      existing.setAttribute('data-desc', it.desc);
+      if(it.flavor) existing.setAttribute('data-flavor', it.flavor);
+      if(it.size) existing.setAttribute('data-size', it.size);
+      existing.setAttribute('data-active', it.active?'true':'false');
+      skuMasterEl.appendChild(existing);
+      created++;
+    }
+    claimed[existing.getAttribute('data-rid')]=true;
+
+    // this row's barcodes now belong to this record and to nothing else
+    if(codes.length){
+      allSkus().forEach(function(other){
+        if(other===existing) return;
+        var keep=skuBarcodes(other).filter(function(b){ return codes.indexOf(b)<0; });
+        if(keep.length!==skuBarcodes(other).length){
+          other.setAttribute('data-barcodes', keep.join(','));
+          split++;
+        }
+      });
+      var have=skuBarcodes(existing);
+      codes.forEach(function(b){ if(have.indexOf(b)<0) have.push(b); });
+      existing.setAttribute('data-barcodes', have.join(','));
     }
   }, function(done,total){ if(progressEl) progressEl.innerHTML='<div class="small muted">Importing… '+done+' / '+total+'</div>'; });
-  appendAuditRaw('import-skus', currentUser.name+' imported '+items.length+' product row(s)');
-  toast('Imported '+items.length+' product row(s).');
+  var note = created+' added, '+updated+' updated'+(split? ', '+split+' barcode(s) moved off a merged product':'');
+  appendAuditRaw('import-skus', currentUser.name+' imported '+items.length+' product row(s) — '+note);
+  toast('Imported '+items.length+' product row(s): '+note+'.');
   render();
 }
 function openSkuModal(rec){
@@ -2962,6 +3079,10 @@ function openSkuModal(rec){
     '<div class="modal-head"><h3 style="margin:0;flex:1;">'+(isEdit?'Edit product':'Add product')+'</h3><button class="btn-ghost" id="closeSkuModal">✕</button></div>'+
     '<div class="modal-body col" style="gap:12px;">'+
       '<div class="field"><label>Description <span style="color:var(--bad);">*</span></label><input id="skuDesc" value="'+(isEdit?esc(rec.getAttribute('data-desc')):'')+'" placeholder="As it reads on the packing slip"></div>'+
+      '<div class="grid grid-2" style="gap:12px;">'+
+        '<div class="field"><label>Flavour</label><input id="skuFlavor" value="'+(isEdit?esc(skuFlavor(rec)):'')+'" placeholder="e.g. SWEET"></div>'+
+        '<div class="field"><label>Size / pack</label><input id="skuSize" value="'+(isEdit?esc(skuSize(rec)):'')+'" placeholder="e.g. 15 CT DISPLAY"></div>'+
+      '</div>'+
       '<div class="field"><label>Item code</label><input id="skuSku" class="mono" value="'+(isEdit?esc(rec.getAttribute('data-sku')):'')+'" placeholder="Leave blank to generate one"></div>'+
       '<div class="field"><label>Barcode(s) — comma separated</label><input id="skuBarcodes" class="mono" value="'+(isEdit?esc(rec.getAttribute('data-barcodes')):'')+'" placeholder="Optional — scanning a box fills this in">'+
         '<div class="small muted" style="margin-top:6px;">You can leave barcodes blank. The first time this product is scanned during receiving you\'ll identify it once, and the barcode is saved here automatically.</div>'+
@@ -2973,19 +3094,24 @@ function openSkuModal(rec){
   $('#saveSkuModal').addEventListener('click', function(){
     var desc=$('#skuDesc').value.trim();
     if(!desc){ toast('Description is required.','bad'); return; }
-    var sku=$('#skuSku').value.trim() || autoSkuFromDesc(desc);
-    var barcodes=$('#skuBarcodes').value.trim();
+    var flavor=$('#skuFlavor').value.trim(), size=$('#skuSize').value.trim();
+    var sku=$('#skuSku').value.trim() || autoSkuFromDesc(skuIdentity(desc,flavor,size));
+    var barcodes=$('#skuBarcodes').value.trim().split(',').map(normBarcode).filter(Boolean).join(',');
     if(isEdit){
       rec.setAttribute('data-sku',sku); rec.setAttribute('data-desc',desc); rec.setAttribute('data-barcodes',barcodes);
-      appendAuditRaw('edit-sku', currentUser.name+' edited product '+sku+' — '+desc);
+      if(flavor) rec.setAttribute('data-flavor',flavor); else rec.removeAttribute('data-flavor');
+      if(size) rec.setAttribute('data-size',size); else rec.removeAttribute('data-size');
+      appendAuditRaw('edit-sku', currentUser.name+' edited product '+sku+' — '+desc+(flavor?' ('+flavor+')':''));
     } else {
       var clash=findSkuByCode(sku);
       if(clash){ toast('That item code is already used by another product.','bad'); return; }
       var el=document.createElement('div'); el.className='sku';
       el.setAttribute('data-rid',uid()); el.setAttribute('data-sku',sku); el.setAttribute('data-desc',desc);
+      if(flavor) el.setAttribute('data-flavor',flavor);
+      if(size) el.setAttribute('data-size',size);
       el.setAttribute('data-barcodes',barcodes); el.setAttribute('data-active','true');
       skuMasterEl.appendChild(el);
-      appendAuditRaw('add-sku', currentUser.name+' added product '+sku+' — '+desc);
+      appendAuditRaw('add-sku', currentUser.name+' added product '+sku+' — '+desc+(flavor?' ('+flavor+')':''));
     }
     closeModal('skuModalBack'); render();
   });
@@ -3282,7 +3408,7 @@ async function exportShipmentReport(sh){
   rows.push([]);
 
   // ---------- column headings: the slip's own, then the receiving columns ----------
-  var RECV=['Scanned','Difference','Result','Barcode(s)'];
+  var RECV=['Flavour','Size','Scanned','Difference','Result','Barcode(s)'];
   var DEFAULT_HEADERS=['Quantity of Master Cases','Description',
                        'Number of pallets','Extra','No. of pallets','QTY'];
   var lines=shipmentLines(sh);
@@ -3303,6 +3429,20 @@ async function exportShipmentReport(sh){
     var mrec=findSkuByCode(sku);
     var codes=mrec?skuBarcodes(mrec).join(' '):'';
     var result = got===exp?'MATCH':(got<exp?'SHORT':'OVER');
+    var flav=skuFlavor(mrec), size=skuSize(mrec);
+    // when the slip line names no flavour, report the flavours that were actually scanned
+    var scanned=$$('.scan',sh).filter(function(s2){
+      return s2.getAttribute('data-void')!=='true' && s2.getAttribute('data-sku')===sku;
+    });
+    var seen=[], seenCodes=[];
+    scanned.forEach(function(s2){
+      var pr=findSkuByCode(s2.getAttribute('data-prodsku')||'');
+      var f=skuFlavor(pr); if(f && seen.indexOf(f)<0) seen.push(f);
+      if(pr && !size) size=skuSize(pr);
+      var c=s2.getAttribute('data-barcode')||''; if(c && seenCodes.indexOf(c)<0) seenCodes.push(c);
+    });
+    if(seen.length) flav=seen.join(' / ');
+    if(seenCodes.length) codes=seenCodes.join(' ');
     var raw=null;
     try{ raw=trimRow(JSON.parse(l.getAttribute('data-raw')||'null')); }catch(e){}
     var base;
@@ -3312,7 +3452,7 @@ async function exportShipmentReport(sh){
       base=[exp, l.getAttribute('data-desc')||''];
     }
     while(base.length<width) base.push('');
-    rows.push(base.concat([got, got-exp, result, codes]));
+    rows.push(base.concat([flav, size, got, got-exp, result, codes]));
   });
 
   // ---------- anything scanned that was not on the slip ----------
@@ -3320,10 +3460,11 @@ async function exportShipmentReport(sh){
   if(extraKeys.length){
     rows.push([]);
     rows.push(['ITEMS SCANNED BUT NOT ON THIS PACKING SLIP']);
-    rows.push(['Description','Item Code','Scanned','Barcode(s)']);
+    rows.push(['Description','Flavour','Size','Item Code','Scanned','Barcode(s)']);
     extraKeys.forEach(function(sku){
       var m=findSkuByCode(sku);
-      rows.push([m?m.getAttribute('data-desc'):'(unknown item)', sku, tot.extras[sku], m?skuBarcodes(m).join(' '):'']);
+      rows.push([m?m.getAttribute('data-desc'):'(unknown item)', skuFlavor(m), skuSize(m),
+                 sku, tot.extras[sku], m?skuBarcodes(m).join(' '):'']);
     });
   }
 

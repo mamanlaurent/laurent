@@ -31,7 +31,7 @@ columns and the spreadsheet's trailing empty columns dropped.
 
 ---
 
-## The four problems that shaped the design
+## The five problems that shaped the design
 
 Read this before changing the import or scanning code. Each of these was a real failure
 found against a real packing slip.
@@ -96,7 +96,34 @@ shipment's pallet count and notes.
 And then it does not trust itself: the operator confirms the mapping, with **each column's
 total shown in the dropdown** so a wrong pick is obvious at a glance.
 
-### 2. Slips have a footer, and the footer is not products
+### 2. One row of the master list is one product
+
+The customer's master list repeats a description across dozens of rows that differ only in
+a **Flavour** column and a barcode — 28 flavours of one cigarillo under one description.
+Matching on description alone folded all 28 into a single product carrying 28 barcodes, so
+every one of those boxes scanned as the same item and the flavour was nowhere.
+
+Rules now, in order:
+
+1. **A product's identity is description + flavour + size** (`skuIdentity`), never
+   description alone.
+2. **A barcode belongs to exactly one product.** On import, each row claims its barcodes
+   and they are stripped from any other record holding them — which repairs a catalogue an
+   earlier import already merged. Re-importing the master list is the fix.
+3. **No two rows of one file may land on the same record** (`claimed`), even if they look
+   identical; item codes are made unique and deterministic by `uniqueSkuCode()`, folding in
+   the barcode so re-imports reproduce the same codes.
+4. **Barcodes are normalised** (`normBarcode`): master lists print `8-42426-19694-9`, a
+   scanner sends `842426196949`. Digits-only codes lose their separators on both sides of
+   every comparison. Alphanumeric Code 128 codes are left untouched.
+
+A packing slip has no flavour column, so a slip line names a description and nothing more.
+Such a line is matched to the catalogue by description when that is unambiguous, a scan of
+any flavour under that description counts against it, and the scan records which product
+was really in the operator's hand (`data-prodsku`) so the export reports the flavours
+actually received.
+
+### 3. Slips have a footer, and the footer is not products
 
 Under the last product row the slip totals itself up: *Cigars Quantity*, *Wrappers
 Quantity*, *Net Weight*, *Gross Weight*, *TOTAL*. Those labels sit in the Description
@@ -108,13 +135,13 @@ unknown barcode was scanned.
 (four words or fewer, matching `SUMMARY_LABEL`) **and** has no case count against it. Both
 halves matter: a real product line always carries boxes, and real descriptions are long.
 
-### 3. The header row is not row 1
+### 4. The header row is not row 1
 
 Slips start with a letterhead block. `detectHeaderRow()` scores the first 25 rows for
 column-heading words. `sniffHeaderFields()` reads `No:` / `CONTAINER:` / `Date:` out of the
 block above it to pre-fill the shipment.
 
-### 4. Re-render destroys what the user is typing
+### 5. Re-render destroys what the user is typing
 
 Three bugs shipped from this. All are easy to reintroduce:
 
@@ -181,7 +208,7 @@ because the code treated the failing sync as a permission problem. If you are re
 | `#settings` | team PIN, whether it is still the default |
 | `#roster .employee` | users: name, role, active, owner |
 | `#clients .client` | clients: name, contact, notes |
-| `#skuMaster .sku` | products: code, description, barcodes (CSV), active |
+| `#skuMaster .sku` | products: code, description, flavour, size, barcodes (CSV), active |
 | `#shipments .shipment` | container header, plus `.line` and `.scan` children |
 | `#auditLog .entry` | append-only audit records |
 
