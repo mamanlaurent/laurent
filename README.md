@@ -21,7 +21,8 @@ the product description *is* the identity. So the first time an unknown barcode 
 the operator is asked once which line it is; the barcode is then bound to that product
 permanently and recognised instantly on every future container.
 
-**Also:** clients with full receiving history, master product catalogue, pallet counts,
+**Also:** clients with full receiving history, master product catalogue (bulk-clearable —
+whole thing or just what the search is showing), pallet counts,
 final reconciliation (MATCH / SHORT / OVER) with forced confirmation on discrepancies,
 an append-only audit trail, searchable shipment history, and CSV export that reproduces
 the original packing slip's own layout — its real columns only, with the unit/weight
@@ -114,7 +115,7 @@ block above it to pre-fill the shipment.
 
 ### 4. Re-render destroys what the user is typing
 
-Two bugs shipped from this. Both are easy to reintroduce:
+Three bugs shipped from this. All are easy to reintroduce:
 
 - **Never re-render a view from inside its own `input` handler.** Filters and searches
   re-render only their results container (`#reportResults`, `#skuResults`,
@@ -122,6 +123,11 @@ Two bugs shipped from this. Both are easy to reintroduce:
 - **The scanner refocus timer must never steal focus from an element in use.** It skips
   any focused `INPUT`/`TEXTAREA`/`SELECT`/`BUTTON`/contenteditable. Without that guard it
   truncated anything typed anywhere on the receiving page.
+- **Anything outside the results container then goes stale, and stale destructive controls
+  are dangerous.** The catalogue's bulk-delete button sat in the header, so a search left it
+  reading "Delete all 18" while the action it would run deleted the 5 rows on screen.
+  `paintSkuDeleteButton()` repaints the label on every filter change. If you add a control
+  whose meaning depends on the filter, repaint it the same way.
 
 ---
 
@@ -250,6 +256,7 @@ desktop and iPhone 13 viewports.
 Covered at last verification: PIN accept/reject, client CRUD and duplicate blocking,
 shipment creation, XLSX and CSV import, quantity-column selection against three slip
 layouts, pallets, expected-qty edits, scan / enroll / skip / reject / void, manual lines,
-product CRUD, all report filters, user management, PIN change, audit logging, deletion
+product CRUD, bulk catalogue deletion (scoped and full, with its confirmation words),
+all report filters, user management, PIN change, audit logging, deletion
 guards, and completion with discrepancy confirmation — on both desktop and iPhone
 viewports.

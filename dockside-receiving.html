@@ -2257,6 +2257,46 @@ function deleteSku(rid){
     }
   });
 }
+/* Clearing the catalogue — the whole thing, or just what the search is showing.
+   Deleting a product never touches a shipment: lines keep their own SKU, description and
+   counts. What is lost is the barcode binding, so those boxes have to be identified once
+   more on the next scan. That is worth saying plainly before someone wipes 500 products. */
+function deleteAllSkus(){
+  if(!isAdmin()){ toast('Only an administrator can delete products.','bad'); return; }
+  var scoped = skuSearchActive();
+  var list = scoped ? filteredSkus() : allSkus();
+  if(!list.length){ toast('There are no products to delete.','bad'); return; }
+
+  var withCodes = list.filter(function(s){ return skuBarcodes(s).length; }).length;
+  var usedSkus = Object.create(null);
+  allShipments().forEach(function(sh){
+    $$('.line',sh).forEach(function(l){ usedSkus[l.getAttribute('data-sku')]=true; });
+  });
+  var used = list.filter(function(s){ return usedSkus[s.getAttribute('data-sku')]; }).length;
+
+  var warn = 'This cannot be undone.';
+  if(withCodes) warn += ' '+withCodes+' of them '+(withCodes===1?'has a learned barcode':'have learned barcodes')+
+    ' — those bindings are lost, and each of those boxes has to be identified once more the next time it is scanned.';
+  if(used) warn += ' '+used+' appear'+(used===1?'s':'')+' on an existing shipment. Those shipments keep their lines, counts and history; only the product entry goes.';
+  warn += ' Export CSV first if you want a copy.';
+
+  confirmDelete({
+    title: scoped? 'Delete these products' : 'Delete the whole catalogue',
+    body: scoped
+      ? 'Delete the <strong>'+list.length+'</strong> product'+(list.length===1?'':'s')+' currently shown by your search?'
+      : 'Delete <strong>all '+list.length+'</strong> product'+(list.length===1?'':'s')+' from the Master SKU Database?',
+    warn: warn,
+    confirmWord: scoped? 'DELETE' : 'DELETE ALL',
+    onConfirm:function(){
+      appendAuditRaw('delete-skus', currentUser.name+' deleted '+list.length+' product(s) from the master catalogue'+
+        (scoped? ' matching the search "'+(window.__skuSearch||'')+'"'+(window.__skuOnlyMissing?' (no barcode)':'') : ' — the entire catalogue'));
+      list.forEach(function(rec){ rec.remove(); });
+      if(!scoped){ window.__skuSearch=''; window.__skuOnlyMissing=false; }
+      toast(list.length+' product'+(list.length===1?'':'s')+' deleted.');
+      render();
+    }
+  });
+}
 function deleteEmployee(id){
   if(!isAdmin()){ toast('Only an administrator can delete a user.','bad'); return; }
   var e=findEmployee(id); if(!e) return;
@@ -2769,7 +2809,8 @@ function renderSkuMasterView(){
   var missingCount=all.filter(function(s){ return !skuBarcodes(s).length; }).length;
   return '' +
   '<div class="row" style="margin-bottom:4px;"><div><h1 class="section-title">Master SKU Database</h1><p class="section-sub">'+all.length+' products · shared and synced across every device.</p></div><div class="spacer"></div>'+
-  (isAdmin()? '<label class="btn btn-sm" style="margin-right:8px;">⇪ Import Excel/CSV<input type="file" id="skuImportFile" accept=".xlsx,.csv,text/csv" class="hidden"></label><button class="btn btn-sm" id="btnExportSkus">⇩ Export CSV</button><button class="btn btn-primary" id="btnAddSku" style="margin-left:8px;">+ Add product</button>' : '')+
+  (isAdmin()? '<label class="btn btn-sm" style="margin-right:8px;">⇪ Import Excel/CSV<input type="file" id="skuImportFile" accept=".xlsx,.csv,text/csv" class="hidden"></label><button class="btn btn-sm" id="btnExportSkus">⇩ Export CSV</button><button class="btn btn-primary" id="btnAddSku" style="margin-left:8px;">+ Add product</button>'+
+    (all.length? '<button class="btn btn-danger btn-sm" id="btnDeleteAllSkus" style="margin-left:8px;">'+skuDeleteLabel()+'</button>' : '') : '')+
   '</div>'+
   (missingCount? '<div class="card pad" style="margin-bottom:14px;background:var(--warn-bg);border-color:var(--warn);"><div class="small" style="color:var(--warn);font-weight:600;">'+missingCount+' product'+(missingCount===1?'':'s')+' '+(missingCount===1?'has':'have')+' no barcode yet. You don\'t need to type them in — scan a box during receiving and identify it once, and the barcode is saved here automatically.</div></div>' : '')+
   '<div class="row wrap" style="margin-bottom:14px;gap:10px;">'+
@@ -2779,16 +2820,35 @@ function renderSkuMasterView(){
   '<div id="skuResults">'+renderSkuRows()+'</div>'+
   '<div id="skuImportProgress"></div>';
 }
-function renderSkuRows(){
+/* The catalogue list the operator is actually looking at. Delete-all uses this same
+   function, so "delete these" can never remove something the table wasn't showing. */
+function skuSearchActive(){ return !!(window.__skuSearch||'').trim() || !!window.__skuOnlyMissing; }
+/* The button says exactly what it will do. Searching re-renders only the results (so
+   typing survives), which means this label has to be repainted by hand — a button reading
+   "Delete all 500" that actually deletes the 5 rows on screen is how a catalogue dies. */
+function skuDeleteLabel(){
+  return skuSearchActive()
+    ? '🗑 Delete these '+filteredSkus().length
+    : '🗑 Delete all '+allSkus().length;
+}
+function paintSkuDeleteButton(){
+  var b=$('#btnDeleteAllSkus'); if(!b) return;
+  b.textContent=skuDeleteLabel();
+  b.disabled = filteredSkus().length===0;
+}
+function filteredSkus(){
   var q=(window.__skuSearch||'').toLowerCase();
   var onlyMissing = !!window.__skuOnlyMissing;
-  var skus=allSkus().filter(function(s){
+  return allSkus().filter(function(s){
     if(onlyMissing && skuBarcodes(s).length) return false;
     if(!q) return true;
     return (s.getAttribute('data-sku')||'').toLowerCase().indexOf(q)>-1 ||
            (s.getAttribute('data-desc')||'').toLowerCase().indexOf(q)>-1 ||
            (s.getAttribute('data-barcodes')||'').toLowerCase().indexOf(q)>-1;
   }).sort(function(a,b){ return (a.getAttribute('data-desc')||'').localeCompare(b.getAttribute('data-desc')||''); });
+}
+function renderSkuRows(){
+  var skus=filteredSkus();
   var rows=skus.map(function(s){
     var active=s.getAttribute('data-active')!=='false';
     var codes=skuBarcodes(s);
@@ -2815,12 +2875,16 @@ function wireSkuRows(){
   }); });
 }
 function wireSkuMasterView(){
-  function refreshSkuRows(){ var box=$('#skuResults'); if(box){ box.innerHTML=renderSkuRows(); wireSkuRows(); } }
+  function refreshSkuRows(){
+    var box=$('#skuResults'); if(box){ box.innerHTML=renderSkuRows(); wireSkuRows(); }
+    paintSkuDeleteButton();
+  }
   var s=$('#skuSearch');
   if(s) s.addEventListener('input', function(){ window.__skuSearch=this.value; refreshSkuRows(); });
   var om=$('#skuOnlyMissing');
   if(om) om.addEventListener('change', function(){ window.__skuOnlyMissing=this.checked; refreshSkuRows(); });
   var addBtn=$('#btnAddSku'); if(addBtn) addBtn.addEventListener('click', function(){ openSkuModal(null); });
+  var delAll=$('#btnDeleteAllSkus'); if(delAll) delAll.addEventListener('click', deleteAllSkus);
   wireSkuRows();
   var exp=$('#btnExportSkus'); if(exp) exp.addEventListener('click', function(){
     var rows=[['SKU','Description','Barcodes','Active']];
