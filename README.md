@@ -24,11 +24,12 @@ permanently and recognised instantly on every future container.
 **Also:** clients with full receiving history, master product catalogue, pallet counts,
 final reconciliation (MATCH / SHORT / OVER) with forced confirmation on discrepancies,
 an append-only audit trail, searchable shipment history, and CSV export that reproduces
-the original packing slip's own layout.
+the original packing slip's own layout — its real columns only, with the unit/weight
+columns and the spreadsheet's trailing empty columns dropped.
 
 ---
 
-## The three problems that shaped the design
+## The four problems that shaped the design
 
 Read this before changing the import or scanning code. Each of these was a real failure
 found against a real packing slip.
@@ -42,7 +43,7 @@ found against a real packing slip.
 | Yellow | *(merged, unlabelled)* | Total boxes for a whole description group (106 = 47+48+11) |
 | **Green** | **Quantity of Master Cases** | **Boxes of THIS line — the number we track** |
 | Blue | Description | Product identity (no SKU, no barcode) |
-| Peach | Units Quantity | Boxes that fit on **one pallet** (48/42/44) |
+| Peach | Units Quantity | **Total cigars** for the line (cases x units per case) — never a box count |
 | Purple | Number of pallets | Pallets for that row or merged group (decimal) |
 | Red | Extra | Loose boxes left over → go on a mixed pallet |
 
@@ -50,9 +51,19 @@ found against a real packing slip.
 no guessing. The yellow group total, the pallet columns and the row counter are all
 excluded from the quantity search.
 
+**Three columns are dropped entirely** — *Units Quantity*, *Net Weight Per Case* and
+*Gross Weight Per Case*. They are unit and weight totals, never box counts, and *Units
+Quantity* is the single most dangerous column to mistake for one: on a full slip it runs
+into the millions. `IGNORED_COL_PATTERNS` keeps them out of the Quantity dropdown, out of
+the stored row (`data-raw`) and header (`data-srcheaders`), and out of the CSV export —
+including for shipments imported before the exclusion existed, which are filtered again at
+export time. The import mapper names the columns it left out, so the operator can see it
+happened.
+
 **Three ways this went wrong before, all now blocked:**
 
-- Picking *Units Quantity* → 16,560 expected boxes instead of 1,256.
+- Picking *Units Quantity* → millions of "boxes" (2,227,549 on the customer's real slip),
+  because those are cigars: 25 cases x 1,800 per case = 45,000 on one line alone.
 - Picking the *yellow* group total → right total, wrong per-line numbers
   (Vanilla blank instead of 173).
 - Picking the *Description* → **2,227,549**. `replace(/[^0-9]/g,'')` concatenated every
@@ -83,13 +94,25 @@ shipment's pallet count and notes.
 And then it does not trust itself: the operator confirms the mapping, with **each column's
 total shown in the dropdown** so a wrong pick is obvious at a glance.
 
-### 2. The header row is not row 1
+### 2. Slips have a footer, and the footer is not products
+
+Under the last product row the slip totals itself up: *Cigars Quantity*, *Wrappers
+Quantity*, *Net Weight*, *Gross Weight*, *TOTAL*. Those labels sit in the Description
+column, so the importer read them as four more products and wrote them into the master
+catalogue — permanently, where they then showed up in the enrollment picker every time an
+unknown barcode was scanned.
+
+`looksLikeSummaryRow()` rejects a row whose description is a short generic label
+(four words or fewer, matching `SUMMARY_LABEL`) **and** has no case count against it. Both
+halves matter: a real product line always carries boxes, and real descriptions are long.
+
+### 3. The header row is not row 1
 
 Slips start with a letterhead block. `detectHeaderRow()` scores the first 25 rows for
 column-heading words. `sniffHeaderFields()` reads `No:` / `CONTAINER:` / `Date:` out of the
 block above it to pre-fill the shipment.
 
-### 3. Re-render destroys what the user is typing
+### 4. Re-render destroys what the user is typing
 
 Two bugs shipped from this. Both are easy to reintroduce:
 
@@ -107,6 +130,12 @@ Two bugs shipped from this. Both are easy to reintroduce:
 Everything lives in `<div id="db" hidden>` as DOM elements with `data-*` attributes.
 
 **Persistence has two layers, and neither is a database:**
+
+The file in this repo is a **snapshot of the live artifact, data included** — the `#db`
+block carries the real clients, shipments, catalogue and audit trail. That makes the repo a
+recoverable backup, and it means one rule matters when redeploying: **read the published
+artifact first and merge its `#db` into this file before publishing**, or you overwrite
+whatever was entered on the warehouse floor since the last commit.
 
 1. **`localStorage`** — every change is written to this device immediately (debounced
    ~350ms, plus on `beforeunload` and tab-hide). Survives reload and browser restart.
@@ -195,7 +224,7 @@ The application logic transfers as-is. What changes is what sits underneath it.
 
 | Concern | Now | Hosted |
 |---|---|---|
-| Storage | synced DOM subtree | Postgres |
+| Storage | `localStorage` + republish | Postgres |
 | Identity | shared PIN | real accounts, hashed passwords, roles |
 | Camera | blocked by host frame | works — own domain, own permissions |
 | Backups | platform-managed | your own automated backups |
@@ -213,6 +242,10 @@ There is no test runner in the repo; verification was done by driving the real p
 Playwright. Any change to import, scanning, saving or filtering should be re-verified the
 same way, **typing character by character rather than setting values at once** — the two
 worst bugs in this project only appeared under real typing.
+
+Two suites live alongside the app during development (`test-import.js`, `test-core.js`):
+import mapping and export contents, and the scan/enroll/save/filter loop. Both run against
+desktop and iPhone 13 viewports.
 
 Covered at last verification: PIN accept/reject, client CRUD and duplicate blocking,
 shipment creation, XLSX and CSV import, quantity-column selection against three slip
