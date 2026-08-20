@@ -22,7 +22,8 @@ the operator is asked once which line it is; the barcode is then bound to that p
 permanently and recognised instantly on every future container.
 
 **Also:** clients with full receiving history, master product catalogue (bulk-clearable —
-whole thing or just what the search is showing), pallet counts,
+whole thing or just what the search is showing, and **Export CSV round-trips it back,
+barcodes included**), pallet counts,
 final reconciliation (MATCH / SHORT / OVER) with forced confirmation on discrepancies,
 an append-only audit trail, searchable shipment history, and CSV export that reproduces
 the original packing slip's own layout — its real columns only, with the unit/weight
@@ -123,6 +124,10 @@ Three bugs shipped from this. All are easy to reintroduce:
 - **The scanner refocus timer must never steal focus from an element in use.** It skips
   any focused `INPUT`/`TEXTAREA`/`SELECT`/`BUTTON`/contenteditable. Without that guard it
   truncated anything typed anywhere on the receiving page.
+- **A greyed-out button under a wall of warning text reads as broken, not as one more
+  step.** The bulk-delete confirmation lists everything at stake, and the confirm button sat
+  below it disabled with no visible reason — so it says `Type DELETE ALL to confirm` until
+  the word matches, and the field takes focus when the modal opens.
 - **Anything outside the results container then goes stale, and stale destructive controls
   are dangerous.** The catalogue's bulk-delete button sat in the header, so a search left it
   reading "Delete all 18" while the action it would run deleted the 5 rows on screen.

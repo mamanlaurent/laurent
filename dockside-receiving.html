@@ -2192,9 +2192,16 @@ function confirmDelete(opts){
   var close=function(){ closeModal('confirmDelBack'); };
   $('#closeConfirmDel').onclick=close; $('#cancelConfirmDel').onclick=close;
   if(needWord){
-    $('#confirmDelWord').addEventListener('input', function(){
-      $('#doConfirmDel').disabled = this.value.trim().toUpperCase()!==opts.confirmWord.toUpperCase();
+    var btn=$('#doConfirmDel'), fld=$('#confirmDelWord');
+    // A greyed-out button under a wall of warning text reads as "broken", not as
+    // "there is one more step" — so the button itself says what it is waiting for.
+    btn.textContent='Type '+opts.confirmWord+' to confirm';
+    fld.addEventListener('input', function(){
+      var okNow = this.value.trim().toUpperCase()===opts.confirmWord.toUpperCase();
+      btn.disabled = !okNow;
+      btn.textContent = okNow? 'Delete permanently' : 'Type '+opts.confirmWord+' to confirm';
     });
+    setTimeout(function(){ try{ fld.focus(); }catch(e){} }, 60);
   }
   $('#doConfirmDel').addEventListener('click', function(){ close(); opts.onConfirm(); });
 }
