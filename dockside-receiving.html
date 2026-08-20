@@ -1021,20 +1021,35 @@ function columnFillCount(rows, idx, headerIdx){
   return n;
 }
 function looksNumericColumn(rows, idx, headerIdx){
-  var num=0, tot=0;
+  var tot=0;
   for(var r=headerIdx+1;r<rows.length;r++){
-    var v=String((rows[r]||[])[idx]||'').trim();
-    if(!v) continue;
-    tot++; if(/^[0-9][0-9,.\s]*$/.test(v)) num++;
+    var v=(rows[r]||[])[idx];
+    if(String(v==null?'':v).trim()==='') continue;
+    if(!cellIsBareNumber(v)) return false;   // one text cell disqualifies the column
+    tot++;
   }
-  return tot>0 && num/tot>=0.8;
+  return tot>0;
+}
+/* Read a quantity from a cell. Takes the FIRST number in the cell and nothing else —
+   never concatenate every digit in the text, which turns a description into millions. */
+function parseQtyCell(v){
+  var t=String(v==null?'':v).trim();
+  if(!t) return 0;
+  t=t.replace(/,/g,'');
+  var m=t.match(/-?\d+(?:\.\d+)?/);
+  if(!m) return 0;
+  var n=parseFloat(m[0]);
+  return isFinite(n)? n : 0;
+}
+/* A cell is only a quantity if it is a bare number — letters mean it is text. */
+function cellIsBareNumber(v){
+  var t=String(v==null?'':v).trim();
+  if(!t) return true;                 // blank is allowed (merged cells)
+  return /^-?[\d,]+(?:\.\d+)?$/.test(t);
 }
 function columnSum(rows, idx, headerIdx){
   var s=0;
-  for(var r=headerIdx+1;r<rows.length;r++){
-    var n=parseFloat(String((rows[r]||[])[idx]||'').replace(/[^0-9.-]/g,''));
-    if(isFinite(n)) s+=n;
-  }
+  for(var r=headerIdx+1;r<rows.length;r++) s+=parseQtyCell((rows[r]||[])[idx]);
   return s;
 }
 function dataRowCount(rows, headerIdx){ return Math.max(rows.length-headerIdx-1, 1); }
@@ -1363,10 +1378,12 @@ function renderNewShipmentModal(){
 }
 
 var pendingImportLines = null; // parsed packing-slip rows staged before shipment creation
-var importState = {rows:null, headerIdx:0, desc:-1, qty:-1, sku:-1, barcode:-1};
+var importState = {rows:null, headerIdx:0, desc:-1, qty:-1, sku:-1, barcode:-1,
+                   unitsPerPallet:-1, palletCount:-1, extraBoxes:-1, knownFormat:''};
 
 /* best guess at which column is which; the operator confirms it in the mapper UI */
 function autoMapImportColumns(){
+  importState.knownFormat='';
   var rows=importState.rows, hi=importState.headerIdx;
   var head=rows[hi]||[];
   var width=widestRowLength(rows);
@@ -1385,6 +1402,23 @@ function autoMapImportColumns(){
   }
   importState.sku = findColLoose(head,['sku','itemcode','itemno','partno','code']);
   importState.barcode = findColLoose(head,['barcode','upc','ean','gtin']);
+  // The customer's standard slip has a fixed, documented shape. When we see it, map it
+  // outright rather than guessing:
+  //   "Quantity of Master Cases" -> boxes for THIS line   (the column the header sits over)
+  //   the merged column beside it -> group subtotal        (ignore)
+  //   "Units Quantity"           -> boxes that fit on one pallet
+  //   "Number of pallets"        -> pallets for that row/group
+  //   "Extra"                    -> loose boxes left over
+  importState.unitsPerPallet = findColLoose(head,['unitsquantity','unitsqty','perpallet','boxesperpallet']);
+  importState.palletCount    = findColLoose(head,['numberofpallets','pallets','noofpallets']);
+  importState.extraBoxes     = findColLoose(head,['extra','loose','remainder']);
+  var masterCases            = findColLoose(head,['quantityofmastercases','mastercases']);
+  if(masterCases>=0 && importState.desc>=0 && looksNumericColumn(rows,masterCases,hi)){
+    importState.qty=masterCases;
+    importState.knownFormat='Needmaj standard packing slip';
+    return;
+  }
+
   // Quantity is the trickiest column to guess: a slip may carry a category subtotal, a
   // units-per-case figure and a pallet count alongside the actual number of cases.
   var cands=[];
@@ -1394,6 +1428,7 @@ function autoMapImportColumns(){
     if(!looksNumericColumn(rows,c2,hi)) continue;
     var headText=String(head[c2]||'').toLowerCase().replace(/[^a-z0-9]/g,'');
     if(/pallet|extra|price|cost|weight|lbs|kg/.test(headText)) continue;
+    if(c2===importState.unitsPerPallet||c2===importState.palletCount||c2===importState.extraBoxes) continue;
     var score=0;
     if(/case/.test(headText)) score+=10;
     if(/qty|quantity|count|received/.test(headText)) score+=4;
@@ -1430,7 +1465,7 @@ function buildImportLines(){
     var desc = String(r[importState.desc]||'').trim();
     var rawSku = importState.sku>=0? String(r[importState.sku]||'').trim() : '';
     var rawBarcode = importState.barcode>=0? String(r[importState.barcode]||'').trim() : '';
-    var qty = importState.qty>=0? parseInt(String(r[importState.qty]||'0').replace(/[^0-9.-]/g,''),10)||0 : 0;
+    var qty = importState.qty>=0? Math.round(parseQtyCell(r[importState.qty])) : 0;
     if(!desc && !rawSku && !rawBarcode) continue;
     if(!desc && !rawSku) continue;
     // reuse an existing catalogue entry when we can, so barcodes already learned still apply
@@ -1459,12 +1494,14 @@ function renderImportMapper(){
   var hi=importState.headerIdx;
   var head=rows[hi]||[];
   var width=widestRowLength(rows);
-  function colOptions(sel, allowNone, withSums){
+  function colOptions(sel, allowNone, numericOnly){
     var out = allowNone? '<option value="-1"'+(sel<0?' selected':'')+'>— none —</option>' : '';
     for(var c=0;c<width;c++){
+      var numeric=looksNumericColumn(rows,c,hi);
+      // a quantity can only ever be a number column — never offer text as a quantity
+      if(numericOnly && !numeric) continue;
       var label=colLabel(c, head, rows, hi);
-      // showing each column's total makes a wrong quantity column obvious immediately
-      if(withSums && looksNumericColumn(rows,c,hi)) label+='  →  adds up to '+columnSum(rows,c,hi).toLocaleString();
+      if(numericOnly) label+='  →  adds up to '+columnSum(rows,c,hi).toLocaleString();
       out+='<option value="'+c+'"'+(sel===c?' selected':'')+'>'+esc(label)+'</option>';
     }
     return out;
@@ -1510,14 +1547,29 @@ function refreshImportPreview(){
   var totalQty=lines.reduce(function(a,l){return a+l.expected;},0);
   var needBarcode=lines.filter(function(l){return !l.known;}).length;
   var avg = lines.length? totalQty/lines.length : 0;
+  var biggest = lines.reduce(function(m,l){ return Math.max(m,l.expected); },0);
   var qtyWarning='';
-  if(importState.qty>=0 && looksLikePackSize(importState.rows, importState.qty, importState.headerIdx)){
+  // A single container line is never tens of thousands of boxes. If we see that, the
+  // wrong column is selected — say so loudly and refuse to let it through quietly.
+  if(biggest>20000 || totalQty>200000){
+    importState.qtyLooksWrong=true;
+    qtyWarning='<div class="small" style="background:var(--bad-bg);color:var(--bad);padding:11px 13px;border-radius:7px;margin-top:8px;font-weight:700;">'+
+      '⚠ '+totalQty.toLocaleString()+' boxes is not a real container. The Quantity column above is pointing at the wrong column — '+
+      'most likely the description or a code. Pick the column whose total matches the box count on your slip; each column\'s total is shown in the dropdown.</div>';
+  } else if(importState.qty>=0 && looksLikePackSize(importState.rows, importState.qty, importState.headerIdx)){
+    importState.qtyLooksWrong=false;
     qtyWarning='<div class="small" style="background:var(--bad-bg);color:var(--bad);padding:10px 12px;border-radius:7px;margin-top:8px;font-weight:600;">'+
-      'That quantity column looks like units per case (the same few large numbers repeating), not the number of cases. Check the column totals in the dropdown above and pick the one that matches the case count on your slip.</div>';
+      'That column looks like boxes-per-pallet or units-per-case (the same few numbers repeating), not the number of boxes received. Check the totals in the dropdown above.</div>';
   } else if(avg>400){
+    importState.qtyLooksWrong=false;
     qtyWarning='<div class="small" style="background:var(--warn-bg);color:var(--warn);padding:10px 12px;border-radius:7px;margin-top:8px;font-weight:600;">'+
-      'That averages '+Math.round(avg).toLocaleString()+' cases per item — high for a container. If that looks wrong, try a different Quantity column.</div>';
+      'That averages '+Math.round(avg).toLocaleString()+' boxes per item — high for a container. If that looks wrong, try a different Quantity column.</div>';
+  } else {
+    importState.qtyLooksWrong=false;
   }
+  var formatNote = importState.knownFormat
+    ? '<div class="small" style="background:var(--ok-bg);color:var(--ok);padding:9px 12px;border-radius:7px;margin-top:8px;font-weight:600;">✓ Recognised your '+esc(importState.knownFormat)+' — columns mapped automatically.</div>'
+    : '';
   el.innerHTML=
     '<div class="table-wrap card" style="margin-top:10px;max-height:260px;overflow-y:auto;"><table><thead><tr><th>Item</th><th>Description</th><th>Expected</th><th>Scannable</th></tr></thead><tbody>'+
     lines.map(function(l){
@@ -1525,7 +1577,7 @@ function refreshImportPreview(){
         (l.known?'<span class="small" style="color:var(--ok);">barcode known</span>':'<span class="small" style="color:var(--warn);">learn on first scan</span>')+'</td></tr>';
     }).join('')+
     '</tbody></table></div>'+
-    qtyWarning+
+    formatNote+qtyWarning+
     '<div class="row" style="margin-top:8px;gap:14px;padding:10px 12px;background:var(--concrete);border-radius:7px;">'+
       '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Items</div><div class="tab-num" style="font-size:18px;font-weight:800;">'+lines.length+'</div></div>'+
       '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Total cases expected</div><div class="tab-num" style="font-size:18px;font-weight:800;">'+totalQty.toLocaleString()+'</div></div>'+
@@ -1571,6 +1623,10 @@ function wireNewShipmentModal(){
   $('#saveNewShip').addEventListener('click', async function(){
     var client=$('#nsClient').value.trim();
     if(!client){ toast('Client is required.','bad'); return; }
+    if(importState.qtyLooksWrong){
+      toast('Those quantities are not right — fix the Quantity column before creating the shipment.','bad');
+      return;
+    }
     var id=uid();
     var attrs = {
       'data-rid':id, 'data-client':client, 'data-container':$('#nsContainer').value.trim(),
@@ -1617,10 +1673,25 @@ function wireNewShipmentModal(){
           }
           sh.setAttribute('data-slipmeta', JSON.stringify(meta));
         }
+        // the slip already works out pallets and loose boxes — carry them across
+        if(importState.rows && importState.palletCount>=0){
+          var palTot=0, extraTot=0;
+          for(var pr=importState.headerIdx+1; pr<importState.rows.length; pr++){
+            palTot+=parseQtyCell((importState.rows[pr]||[])[importState.palletCount]);
+            if(importState.extraBoxes>=0) extraTot+=parseQtyCell((importState.rows[pr]||[])[importState.extraBoxes]);
+          }
+          if(palTot>0){
+            sh.setAttribute('data-pallets', String(Math.ceil(palTot)));
+            sh.setAttribute('data-palletnotes',
+              'From packing slip: '+palTot.toFixed(2)+' full pallets'+
+              (extraTot>0? ', '+extraTot+' loose boxes for a mixed pallet':''));
+          }
+        }
         appendAuditRaw('import-slip', currentUser.name+' imported '+pendingImportLines.length+' packing-slip line(s)');
       }
       pendingImportLines=null;
-      importState={rows:null, headerIdx:0, desc:-1, qty:-1, sku:-1, barcode:-1};
+      importState={rows:null, headerIdx:0, desc:-1, qty:-1, sku:-1, barcode:-1,
+                   unitsPerPallet:-1, palletCount:-1, extraBoxes:-1, knownFormat:''};
       closeModal('newShipModalBack');
       toast('Shipment created.');
       goto('shipments', id);

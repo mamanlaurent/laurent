@@ -35,16 +35,43 @@ found against a real packing slip.
 
 ### 1. Quantity columns lie
 
-A real slip carried three numeric columns that all look like quantities:
+**The customer's standard slip (colour-coded by them):**
 
-| Column | Content | Sums to |
+| Colour | Header | Meaning |
 |---|---|---|
-| A | Category subtotal, merged across rows (106 = 47+48+11) | 1,256 |
-| B | Per-flavour case count — **the correct one** | 1,256 |
-| D | "Units Quantity" = cigars per case (720, 1080, 1440) | 16,560 |
+| Yellow | *(merged, unlabelled)* | Total boxes for a whole description group (106 = 47+48+11) |
+| **Green** | **Quantity of Master Cases** | **Boxes of THIS line — the number we track** |
+| Blue | Description | Product identity (no SKU, no barcode) |
+| Peach | Units Quantity | Boxes that fit on **one pallet** (48/42/44) |
+| Purple | Number of pallets | Pallets for that row or merged group (decimal) |
+| Red | Extra | Loose boxes left over → go on a mixed pallet |
 
-Picking D produced 16,560 expected cases. Picking A produced the right *total* but wrong
-*per-line* numbers (Vanilla blank instead of 173).
+`autoMapImportColumns()` recognises this layout by its headers and maps it outright —
+no guessing. The yellow group total, the pallet columns and the row counter are all
+excluded from the quantity search.
+
+**Three ways this went wrong before, all now blocked:**
+
+- Picking *Units Quantity* → 16,560 expected boxes instead of 1,256.
+- Picking the *yellow* group total → right total, wrong per-line numbers
+  (Vanilla blank instead of 173).
+- Picking the *Description* → **2,227,549**. `replace(/[^0-9]/g,'')` concatenated every
+  digit in the text: "1800 Ct … 12.25 Lbs … 3/1.19" became 180012251119.
+
+Guards, in order of importance:
+
+1. **Quantities are parsed with `parseQtyCell()`** — the first number in the cell, never
+   every digit concatenated.
+2. **A column with any text in it is not a number column** (`cellIsBareNumber`), so text
+   columns are *never offered* in the Quantity dropdown.
+3. A column whose values equal the sum of the rows beneath it is a group subtotal
+   (`isSubtotalColumn`); a column of repeating large round numbers is a pack size
+   (`looksLikePackSize`); a column with gaps loses to a complete one.
+4. Absurd results (>20k on a line, >200k total) block shipment creation outright.
+5. Every numeric column's **total is shown in the dropdown**, so a wrong pick is visible.
+
+Pallets come across too: `Number of pallets` and `Extra` are summed to pre-fill the
+shipment's pallet count and notes.
 
 `autoMapImportColumns()` therefore:
 - rejects a column whose values equal the sum of the rows beneath it (`isSubtotalColumn`)
