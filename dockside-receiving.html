@@ -1,6 +1,6 @@
 <title>Dockside Receiving</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<style>
+<style id="appStyle">
   :root{
     --ink:#1c2128; --slate:#5a6472; --slate-2:#828d9c; --concrete:#eef0ea; --paper:#ffffff;
     --line:#dcdfd6; --accent:#2a5a8c; --accent-ink:#ffffff; --accent-dim:#e4ecf4;
@@ -245,7 +245,7 @@
 <div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
 
 <!-- ============ SHARED LIVE DATA STORE (synced across every open device) ============ -->
-<div id="db" artifact-sync hidden>
+<div id="db" hidden>
   <div id="settings" data-teampin="1234" data-seeded="true"></div>
   <div id="roster">
     <div class="employee" data-rid="u-owner" data-name="Owner" data-role="admin" data-active="true" data-owner="true"></div>
@@ -260,7 +260,7 @@
   <div id="auditLog"></div>
 </div>
 
-<script>
+<script id="appScript">
 (function(){
 "use strict";
 
@@ -285,7 +285,6 @@ function bindDbRefs(){
 
 /* ---------------------------------------------------------------- runtime state (per-device, not shared) */
 var artifactApi = null;
-var readOnly = false;
 var currentUser = null; // {id,name,role}
 var view = {tab:'shipments', shipmentId:null, clientId:null};
 var cameraStream=null, cameraRAF=null, scanRefocusTimer=null;
@@ -309,29 +308,184 @@ try{ var savedUser = JSON.parse(sessionStorage.getItem('dr_user')||'null'); if(s
 
 function saveViewState(){ try{ sessionStorage.setItem('dr_view', JSON.stringify(view)); }catch(e){} }
 
-/* ---------------------------------------------------------------- save status
-   Every change writes straight to the shared store — there is no "unsaved" state to
-   lose. This just makes that visible so nobody wonders whether their work stuck. */
+/* ================================================================ PERSISTENCE
+   This is a classic artifact: the page the server stores is the page everyone loads,
+   and only artifact.publish() changes it. So there are two layers:
+
+     1. THIS DEVICE  — every change is written to localStorage immediately. Survives
+                       reloads, closing the tab, and restarting the browser.
+     2. THE CLOUD    — "Save to cloud" republishes the artifact with the current data
+                       baked in, so other devices pick it up when they open the link.
+
+   Cloud saving reloads the page (that is how publish works), so it is deliberate
+   rather than automatic: it runs on demand and when a shipment is completed. */
+
+var LS_KEY='dockside_db_v2';
 var saveState='saved', saveTimer=null, lastSavedAt=null;
+var cloudState='idle', lastCloudAt=null, cloudBlockedReason='';
+
+function dbSnapshot(){ return dbRoot? dbRoot.innerHTML : ''; }
+function stampNow(){ return new Date().toISOString(); }
+
+function saveLocal(){
+  if(!dbRoot) return;
+  try{
+    dbRoot.setAttribute('data-savedat', stampNow());
+    localStorage.setItem(LS_KEY, JSON.stringify({savedAt:dbRoot.getAttribute('data-savedat'), html:dbSnapshot()}));
+    saveState='saved'; lastSavedAt=new Date();
+  }catch(e){
+    saveState='error';
+    toast('This device could not save locally: '+(e&&e.message||'storage unavailable'),'bad');
+  }
+  paintSaveStatus();
+}
+/* on boot, take whichever copy is newer: what the artifact served, or what this device saved */
+function loadLocalIfNewer(){
+  if(!dbRoot) return;
+  var servedAt=dbRoot.getAttribute('data-savedat')||'';
+  var raw=null;
+  try{ raw=localStorage.getItem(LS_KEY); }catch(e){ return; }
+  if(!raw) return;
+  var saved=null;
+  try{ saved=JSON.parse(raw); }catch(e){ return; }
+  if(!saved || !saved.html) return;
+  if(!servedAt || (saved.savedAt||'') > servedAt){
+    dbRoot.innerHTML=saved.html;
+    dbRoot.setAttribute('data-savedat', saved.savedAt||stampNow());
+    bindDbRefs();
+  }
+}
 function markSaving(){
   saveState='saving';
   paintSaveStatus();
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(function(){
-    if(readOnly){ saveState='readonly'; } else { saveState='saved'; lastSavedAt=new Date(); }
-    paintSaveStatus();
-  }, 450);
+  saveTimer=setTimeout(saveLocal, 350);
 }
 function saveStatusText(){
-  if(readOnly) return '👁 Read-only — changes are not saved';
+  if(saveState==='error') return '⚠ Not saved on this device';
   if(saveState==='saving') return '⟳ Saving…';
-  return '✓ All changes saved'+(lastSavedAt? ' · '+lastSavedAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+  return '✓ Saved on this device'+(lastSavedAt? ' · '+lastSavedAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
 }
 function paintSaveStatus(){
   $$('.savestatus').forEach(function(el){
     el.textContent=saveStatusText();
-    el.className='savestatus small'+(readOnly?' ss-bad':(saveState==='saving'?' ss-busy':' ss-ok'));
+    el.className='savestatus small'+(saveState==='error'?' ss-bad':(saveState==='saving'?' ss-busy':' ss-ok'));
   });
+}
+
+/* ---- rebuild this page verbatim, with the current data baked in, for publish() ----
+   Never serialise the live document: it carries the host's injected runtime. We keep
+   our own <style> and <script> by id and reassemble around them. */
+function buildFullPage(){
+  var styleEl=document.getElementById('appStyle');
+  var scriptEl=document.getElementById('appScript');
+  if(!styleEl||!scriptEl||!dbRoot) return null;
+  var db=dbRoot.cloneNode(true);
+  db.setAttribute('data-savedat', stampNow());
+  var html=
+    '<!doctype html>\n<html>\n<head>\n'+
+    '<meta charset="utf-8">\n'+
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n'+
+    '<title>Dockside Receiving</title>\n'+
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">\n'+
+    styleEl.outerHTML+'\n'+
+    '</head>\n<body>\n'+
+    '<div id="app"></div>\n'+
+    '<div id="toastWrap" class="toast-wrap" aria-live="polite"></div>\n'+
+    db.outerHTML+'\n'+
+    scriptEl.outerHTML+'\n'+
+    '</body>\n</html>';
+  // refuse to publish anything that lost a critical piece
+  if(html.indexOf('id="appScript"')<0 || html.indexOf('id="appStyle"')<0 ||
+     html.indexOf('id="db"')<0 || html.indexOf('function boot()')<0) return null;
+  return html;
+}
+
+async function saveToCloud(opts){
+  opts=opts||{};
+  if(!artifactApi){
+    toast('Cloud saving is not available in this view. Your work is still saved on this device — use Backup to move it.','bad');
+    return false;
+  }
+  var html=buildFullPage();
+  if(!html){
+    toast('Could not assemble the page for cloud saving. Your work is safe on this device — please use Backup.','bad');
+    return false;
+  }
+  saveLocal();                       // never publish without a local copy first
+  cloudState='saving'; paintCloudStatus();
+  try{
+    await artifactApi.publish(html); // the view reloads on success
+    lastCloudAt=new Date(); cloudState='saved'; paintCloudStatus();
+    return true;
+  }catch(err){
+    cloudState='error';
+    var code=err&&err.code;
+    if(code==='conflict'){
+      toast('Another device saved first — this page is reloading to their version. Your work is still on this device; use Backup if you need to merge.','bad');
+    } else if(code==='not_writer'||code==='not_granted'||code==='capability_disabled'){
+      cloudBlockedReason='This view cannot write to the artifact.';
+      toast('Cloud saving is not permitted in this view. Your work stays saved on this device.','bad');
+    } else if(code==='too_large'){
+      toast('There is too much data to save to the cloud. Export a backup and start a fresh container list.','bad');
+    } else if(code==='rate_limited'){
+      toast('Saving to the cloud too often — wait a moment and try again.','bad');
+    } else {
+      toast('Cloud save failed: '+((err&&err.message)||code||'unknown error')+'. Your work is saved on this device.','bad');
+    }
+    paintCloudStatus();
+    return false;
+  }
+}
+function cloudStatusText(){
+  if(cloudState==='saving') return '☁ Saving to cloud…';
+  if(cloudState==='error') return '☁ Cloud save failed';
+  if(lastCloudAt) return '☁ Cloud copy saved · '+lastCloudAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  return '';
+}
+function paintCloudStatus(){
+  $$('.cloudstatus').forEach(function(el){
+    el.textContent=cloudStatusText();
+    el.className='cloudstatus small'+(cloudState==='error'?' ss-bad':(cloudState==='saving'?' ss-busy':' ss-ok'));
+  });
+}
+
+/* ---- backup: the reliable way to move data between devices or off-platform ---- */
+async function exportBackup(){
+  var payload={ app:'dockside-receiving', version:2, exportedAt:stampNow(), db:dbSnapshot() };
+  var downloadsApi=null;
+  try{ downloadsApi=await claude.use('downloads'); }catch(e){}
+  if(!downloadsApi){ toast('Downloads are not available in this view.','bad'); return; }
+  try{
+    await downloadsApi.save({filename:'dockside-backup-'+todayStr()+'.json', data:JSON.stringify(payload)});
+    toast('Backup saved.');
+  }catch(err){ if(!(err&&err.code==='declined')) toast('Could not save the backup file.','bad'); }
+}
+function importBackup(file){
+  if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(){
+    var data=null;
+    try{ data=JSON.parse(String(reader.result)); }catch(e){}
+    if(!data || data.app!=='dockside-receiving' || typeof data.db!=='string'){
+      toast('That is not a Dockside backup file.','bad'); return;
+    }
+    confirmDelete({
+      title:'Restore from backup',
+      body:'Replace everything currently in this system with the contents of <strong>'+esc(file.name)+'</strong>?',
+      warn:'All shipments, products, clients and audit history on this device will be replaced by the backup. Export a backup first if you are unsure.',
+      confirmWord:'RESTORE',
+      onConfirm:function(){
+        dbRoot.innerHTML=data.db;
+        bindDbRefs();
+        appendAuditRaw('restore-backup', (currentUser?currentUser.name:'system')+' restored the system from backup '+file.name);
+        saveLocal();
+        toast('Backup restored.');
+        render();
+      }
+    });
+  };
+  reader.readAsText(file);
 }
 function goto(tab, shipmentId){
   if(!(tab==='shipments' && shipmentId===view.shipmentId)){ pendingEnroll=[]; enrollFilter=''; }
@@ -478,23 +632,8 @@ function appendAuditRaw(action, detail){
 
 /* wraps a mutation fn: uses sync() when there's no live user gesture (bulk import, camera scans),
    otherwise runs directly since it's already inside a gesture handler */
-async function withSync(fn, viaSync){
-  if(viaSync && artifactApi){
-    try{ await artifactApi.sync(fn); }
-    catch(err){ handleWriteError(err); throw err; }
-  } else {
-    fn();
-  }
-}
-function handleWriteError(err){
-  if(err && (err.code==='not_writer'||err.code==='not_granted'||err.code==='capability_disabled')){
-    if(!readOnly){ readOnly=true; toast('This view is read-only — changes here will not be saved. Ask the owner for edit access.','bad'); render(); }
-  } else if(err && err.code==='rate_limited'){
-    toast('Syncing is catching up — slow down slightly and try again.','bad');
-  } else if(err){
-    toast('Could not save that change: '+(err.message||err.code||'unknown error'),'bad');
-  }
-}
+/* Writes are ordinary DOM writes into #db; markSaving() persists them to this device. */
+async function withSync(fn){ fn(); markSaving(); }
 
 /* ---------------------------------------------------------------- login */
 function isAdmin(){ return currentUser && currentUser.role==='admin'; }
@@ -1023,7 +1162,7 @@ async function bulkWrite(items, chunkSize, fn, onProgress){
   chunkSize=chunkSize||40;
   for(var i=0;i<items.length;i+=chunkSize){
     var chunk=items.slice(i,i+chunkSize);
-    await withSync(function(){ chunk.forEach(fn); }, true);
+    await withSync(function(){ chunk.forEach(fn); });
     if(onProgress) onProgress(Math.min(i+chunk.length,items.length), items.length);
   }
 }
@@ -1033,7 +1172,7 @@ function render(){
   bindDbRefs();
   var app=$('#app');
   if(!currentUser){ app.innerHTML=renderLogin(); wireLogin(); return; }
-  var banner = readOnly ? '<div class="readonly-banner">👁 Read-only view — your scans and edits on this device will not be saved. Ask the artifact owner to grant you edit access.</div>' : '';
+  var banner = '';
   app.innerHTML =
     '<div class="app">'+
       renderSidebar()+
@@ -1055,6 +1194,7 @@ function renderMobileBar(){
       '<div class="brand-name">'+esc(mobileTitle())+'</div>'+
       '<div class="savestatus small ss-ok" style="font-size:10.5px;">'+esc(saveStatusText())+'</div>'+
     '</div>'+
+    '<button class="btn btn-sm" id="btnCloudSaveMobile" style="background:#232a34;border-color:#39424f;color:#fff;">☁</button>'+
     '<button class="btn btn-sm" id="btnLogoutMobile" style="background:#232a34;border-color:#39424f;color:#fff;">Log out</button>'+
   '</div>';
 }
@@ -1105,7 +1245,11 @@ function renderSidebar(){
     item('audit','🕓','Audit Trail', true)+
     item('users','🔐','Users &amp; Security', true)+
     '<div class="sidebar-foot">'+
-      '<div class="row" style="padding:4px 10px 10px;gap:6px;"><span class="sync-dot'+(readOnly?' off':'')+'"></span><span class="savestatus small ss-ok">'+esc(saveStatusText())+'</span></div>'+
+      '<div class="col" style="padding:4px 10px 10px;gap:5px;">'+
+        '<span class="savestatus small ss-ok">'+esc(saveStatusText())+'</span>'+
+        '<span class="cloudstatus small ss-ok">'+esc(cloudStatusText())+'</span>'+
+        '<button class="btn btn-sm" id="btnCloudSave" style="background:#1c222b;border-color:#2a313b;color:#dfe3e8;justify-content:center;">☁ Save to cloud</button>'+
+      '</div>'+
       '<div class="user-chip">'+
         '<div class="user-avatar">'+esc(initials(currentUser.name))+'</div>'+
         '<div style="min-width:0;"><div class="user-name">'+esc(currentUser.name)+'</div><div class="user-role">'+esc(currentUser.role)+'</div></div>'+
@@ -1152,6 +1296,11 @@ function wireGlobal(){
   $$('button[data-nav]').forEach(function(b){ b.addEventListener('click', function(){ goto(b.getAttribute('data-nav')); }); });
   var lo=$('#btnLogout'); if(lo) lo.addEventListener('click', logout);
   var lom=$('#btnLogoutMobile'); if(lom) lom.addEventListener('click', logout);
+  ['#btnCloudSave','#btnCloudSaveMobile'].forEach(function(sel){
+    var b=$(sel);
+    if(b) b.addEventListener('click', function(){ saveToCloud(); });
+  });
+  paintSaveStatus(); paintCloudStatus();
 }
 
 /* ================================================================ SHIPMENTS LIST */
@@ -1443,7 +1592,7 @@ function wireNewShipmentModal(){
       appendAuditRaw('create-shipment', currentUser.name+' created shipment for '+client+(attrs['data-container']?' / container '+attrs['data-container']:''));
     }
     try{
-      await withSync(build, false); // creating one shipment shell is a single direct gesture-driven write
+      await withSync(build); // creating one shipment shell is a single direct gesture-driven write
       var sh = findShipment(id);
       if(pendingImportLines && pendingImportLines.length){
         var linesEl = $('.lines', sh);
@@ -1844,7 +1993,7 @@ async function submitScan(sh, code, viaCamera){
   var out;
   try{
     if(viaCamera){
-      await withSync(function(){ out=performScanMutation(sh, code, user); }, true);
+      await withSync(function(){ out=performScanMutation(sh, code, user); });
     } else {
       out=performScanMutation(sh, code, user);
     }
@@ -2126,7 +2275,12 @@ function openCompleteModal(sh){
     sh.setAttribute('data-completedat', new Date().toISOString());
     sh.setAttribute('data-confirmeddiscrepancy', tot.discrepancy? 'true':'false');
     appendAuditRaw('complete-shipment', currentUser.name+' completed the shipment ('+(tot.discrepancy?'with confirmed discrepancies':'exact match')+')');
-    closeModal('completeBack'); stopCamera(); toast('Shipment completed.'); render();
+    closeModal('completeBack'); stopCamera();
+    clearTimeout(saveTimer); saveLocal();
+    toast('Shipment completed — saving a cloud copy…');
+    render();
+    saveToCloud();   // reloads this view on success, with the finished container stored
+
   });
 }
 
@@ -2996,10 +3150,26 @@ function renderUsersView(){
     '<p class="small muted" style="margin:0 0 10px;">Everyone uses this PIN plus their own name to log in and attribute scans. This is a convenience gate, not real security — treat this page like a shared internal tool.</p>'+
     '<div class="row"><input id="teamPinInput" style="max-width:140px;" value="'+esc(settingsEl.getAttribute('data-teampin'))+'"><button class="btn btn-sm" id="btnSaveTeamPin">Update PIN</button></div>'+
   '</div>'+
+  '<div class="card pad" style="margin-bottom:18px;">'+
+    '<h3 style="margin:0 0 8px;">Saving &amp; backup</h3>'+
+    '<p class="small muted" style="margin:0 0 10px;">Everything you do is saved on <strong>this device</strong> the moment you do it, and survives closing the browser. '+
+      '<strong>Save to cloud</strong> stores a copy on the artifact itself so another device sees it next time it opens the link — it reloads the page, so do it between containers rather than mid-scan. '+
+      'A <strong>backup file</strong> is the dependable way to move everything to another device or keep a copy off the system.</p>'+
+    '<div class="row wrap" style="gap:8px;">'+
+      '<button class="btn btn-sm" id="btnCloudSave2">☁ Save to cloud now</button>'+
+      '<button class="btn btn-sm" id="btnExportBackup">⇩ Export backup file</button>'+
+      '<label class="btn btn-sm">⇪ Restore from backup<input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></label>'+
+    '</div>'+
+    '<div class="row" style="margin-top:10px;gap:14px;"><span class="savestatus small ss-ok"></span><span class="cloudstatus small ss-ok"></span></div>'+
+  '</div>'+
   '<div class="card pad" style="margin-bottom:12px;"><div class="row"><h3 style="margin:0;flex:1;">Employees</h3><button class="btn btn-primary btn-sm" id="btnAddEmp">+ Add employee</button></div></div>'+
   '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
 }
 function wireUsersView(){
+  var cs2=$('#btnCloudSave2'); if(cs2) cs2.addEventListener('click', function(){ saveToCloud(); });
+  var eb=$('#btnExportBackup'); if(eb) eb.addEventListener('click', exportBackup);
+  var rf=$('#restoreFile'); if(rf) rf.addEventListener('change', function(ev){ importBackup(ev.target.files[0]); ev.target.value=''; });
+  paintSaveStatus(); paintCloudStatus();
   $('#btnSaveTeamPin').addEventListener('click', function(){
     var v=$('#teamPinInput').value.trim(); if(!v){ toast('PIN cannot be empty.','bad'); return; }
     settingsEl.setAttribute('data-teampin', v);
@@ -3063,18 +3233,17 @@ function wireViewport(){
 /* ================================================================ sync lifecycle */
 function wireSyncEvents(){
   if(window.__drSyncWired) return; window.__drSyncWired=true;
-  document.addEventListener('claude:edit', function(){ render(); });
-  dbRoot && dbRoot.addEventListener && dbRoot.addEventListener('claude:sync-off', function(){
-    readOnly=true; toast('This view is read-only — changes will not be saved.','bad'); render();
-  });
-  document.addEventListener('claude:sync-lost', function(ev){
-    toast('Some changes could not sync yet and will retry automatically.','bad');
+  // save whatever is pending if the tab is closed or backgrounded mid-scan
+  window.addEventListener('beforeunload', function(){ clearTimeout(saveTimer); saveLocal(); });
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState==='hidden'){ clearTimeout(saveTimer); saveLocal(); }
   });
 }
 
 /* ================================================================ boot */
 async function boot(){
   bindDbRefs();
+  loadLocalIfNewer();      // this device's copy wins if it is newer than what was served
   wireSyncEvents();
   try{ artifactApi = await claude.use('artifact'); }catch(e){ artifactApi=null; }
   render();

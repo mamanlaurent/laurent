@@ -77,9 +77,37 @@ Two bugs shipped from this. Both are easy to reintroduce:
 
 ## How the data is stored
 
-Everything lives in `<div id="db" artifact-sync hidden>` as DOM elements with `data-*`
-attributes. The Artifact platform syncs that subtree across viewers, which is what makes
-multi-device scanning work. There is no separate database.
+Everything lives in `<div id="db" hidden>` as DOM elements with `data-*` attributes.
+
+**Persistence has two layers, and neither is a database:**
+
+1. **`localStorage`** — every change is written to this device immediately (debounced
+   ~350ms, plus on `beforeunload` and tab-hide). Survives reload and browser restart.
+   On boot, `loadLocalIfNewer()` compares the local copy's timestamp against the one
+   baked into the served page and takes whichever is newer.
+2. **`artifact.publish()`** — "Save to cloud" rebuilds the whole page with the current
+   `#db` baked in and republishes it, so other devices see the data next time they open
+   the link. `buildFullPage()` reassembles the document around the tagged `#appStyle`
+   and `#appScript` elements — **never serialise the live DOM**, it carries the host's
+   injected runtime. It refuses to publish if any critical piece is missing.
+
+### The mistake this replaced — do not repeat it
+
+The first version marked `#db` with `artifact-sync` and assumed the platform synced it
+across viewers. **`artifact-sync` regions only work on live docs. This is a classic
+artifact.** The attribute was inert: nothing was ever persisted or shared, data lived only
+in the tab's memory, and a spurious "read-only, ask the owner for access" banner appeared
+because the code treated the failing sync as a permission problem. If you are reaching for
+`sync()` or `edit()`, check which kind of artifact this is first.
+
+### Consequences to design around
+
+- **One active device at a time.** Cloud save is last-writer-wins at page granularity.
+  Simultaneous scanning from two devices is *not* supported here — it needs the hosted
+  version.
+- **Publishing reloads the page**, so it runs on demand and on shipment completion, never
+  mid-scan.
+- Backup export/import (JSON) is the dependable way to move data between devices.
 
 | Element | Holds |
 |---|---|
@@ -127,9 +155,10 @@ These are properties of running as an artifact, not bugs:
 1. **The PIN is accountability, not security.** It is readable in the page source. Anyone
    with the link can open the app.
 2. **Camera scanning is blocked by the host frame.**
-3. **Sync is best-effort**, not a transactional database. The append-only design makes lost
-   counts unlikely, not impossible.
-4. **No server-side backup you control.** Data lives with the artifact.
+3. **No simultaneous multi-device scanning.** See the persistence section — this was in the
+   original requirements and the artifact cannot meet it.
+4. **Editing requires the owner's Claude account.** Staff logins are not possible here.
+5. **No server-side backup you control.** Export a backup file.
 
 ---
 
