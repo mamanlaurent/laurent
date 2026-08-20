@@ -1,0 +1,3085 @@
+<title>Dockside Receiving</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ink:#1c2128; --slate:#5a6472; --slate-2:#828d9c; --concrete:#eef0ea; --paper:#ffffff;
+    --line:#dcdfd6; --accent:#2a5a8c; --accent-ink:#ffffff; --accent-dim:#e4ecf4;
+    --ok:#227a52; --ok-bg:#e3f3ea; --warn:#a06a0d; --warn-bg:#fbeed4; --bad:#b23a2c; --bad-bg:#fbe4e0;
+    --shadow: 0 1px 2px rgba(28,33,40,.06), 0 4px 14px rgba(28,33,40,.06);
+    --radius: 8px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#e9ebee; --slate:#a7b0bd; --slate-2:#7b8494; --concrete:#14171c; --paper:#1b1f26;
+      --line:#2c323c; --accent:#5b9bd8; --accent-ink:#0c1116; --accent-dim:#1e2a36;
+      --ok:#49c58c; --ok-bg:#12261d; --warn:#e0ac3f; --warn-bg:#2b2110; --bad:#e2594a; --bad-bg:#2b1714;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 18px rgba(0,0,0,.35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#e9ebee; --slate:#a7b0bd; --slate-2:#7b8494; --concrete:#14171c; --paper:#1b1f26;
+    --line:#2c323c; --accent:#5b9bd8; --accent-ink:#0c1116; --accent-dim:#1e2a36;
+    --ok:#49c58c; --ok-bg:#12261d; --warn:#e0ac3f; --warn-bg:#2b2110; --bad:#e2594a; --bad-bg:#2b1714;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 18px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--concrete); color:var(--ink);
+    font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size:14.5px; line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.disp{ font-family:"Archivo", ui-sans-serif, system-ui, sans-serif; text-wrap:balance; letter-spacing:-.01em; }
+  code,.mono,input.mono,.tab-num{ font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; font-variant-numeric:tabular-nums; }
+  a{color:var(--accent);}
+  button{ font-family:inherit; font-size:inherit; cursor:pointer; }
+  input,select,textarea{ font-family:inherit; font-size:inherit; color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+  input:focus,select:focus,textarea:focus,button:focus-visible,[tabindex]:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  button:focus:not(:focus-visible){ outline:none; }
+  ::placeholder{ color:var(--slate-2); }
+  .hidden{ display:none !important; }
+  .btn{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--paper); color:var(--ink); padding:8px 14px; border-radius:7px; font-weight:600; font-size:13.5px; white-space:nowrap; }
+  .btn:hover{ border-color:var(--slate-2); }
+  .btn-primary{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .btn-primary:hover{ filter:brightness(1.06); }
+  .btn-danger{ background:var(--bad-bg); border-color:var(--bad); color:var(--bad); }
+  .btn-ghost{ background:transparent; border-color:transparent; padding:6px 8px; color:var(--slate); }
+  .btn-ghost:hover{ color:var(--ink); background:var(--accent-dim); }
+  .btn-sm{ padding:5px 10px; font-size:12.5px; }
+  .btn[disabled]{ opacity:.45; cursor:not-allowed; }
+  .card{ background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+  .pad{ padding:18px 20px; }
+  .row{ display:flex; align-items:center; gap:10px; }
+  .row.wrap{ flex-wrap:wrap; }
+  .col{ display:flex; flex-direction:column; gap:6px; }
+  .grid{ display:grid; gap:14px; }
+  .spacer{ flex:1; }
+  .muted{ color:var(--slate); }
+  .small{ font-size:12.3px; }
+  .field label{ display:block; font-size:12px; font-weight:600; color:var(--slate); text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px; }
+  .field input, .field select, .field textarea{ width:100%; }
+  .pill{ display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+  .pill-open{ background:var(--accent-dim); color:var(--accent); }
+  .pill-receiving{ background:var(--warn-bg); color:var(--warn); }
+  .pill-completed{ background:var(--ok-bg); color:var(--ok); }
+  .pill-match{ background:var(--ok-bg); color:var(--ok); }
+  .pill-short{ background:var(--bad-bg); color:var(--bad); }
+  .pill-over{ background:var(--warn-bg); color:var(--warn); }
+  .dot{ width:7px; height:7px; border-radius:50%; display:inline-block; }
+  table{ width:100%; border-collapse:collapse; }
+  thead th{ position:sticky; top:0; background:var(--paper); text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--slate); font-weight:700; padding:9px 10px; border-bottom:1px solid var(--line); z-index:1; }
+  tbody td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:var(--concrete); }
+  .table-wrap{ overflow-x:auto; border-radius:var(--radius); }
+  .app{ display:flex; min-height:100vh; }
+  .sidebar{ width:220px; flex:none; background:var(--ink); color:var(--concrete); display:flex; flex-direction:column; padding:16px 12px; gap:2px; position:sticky; top:0; height:100vh; }
+  :root:not([data-theme="light"]) .sidebar, :root[data-theme="dark"] .sidebar { background:#0d1013; }
+  .brand{ display:flex; align-items:center; gap:9px; padding:6px 10px 18px; }
+  .brand-mark{ width:30px; height:30px; border-radius:7px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-size:16px; flex:none; }
+  .brand-name{ font-family:"Archivo"; font-weight:800; font-size:15.5px; color:#fff; letter-spacing:-.01em; line-height:1.1; }
+  .brand-sub{ font-size:10.5px; color:#8891a0; text-transform:uppercase; letter-spacing:.08em; }
+  .navbtn{ display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:7px; color:#b6bcc6; background:transparent; border:none; text-align:left; font-size:13.5px; font-weight:600; }
+  .navbtn:hover{ background:#1c222b; color:#fff; }
+  .navbtn.active{ background:var(--accent); color:#fff; }
+  .navbtn .ic{ font-size:15px; width:18px; text-align:center; flex:none; }
+  .nav-sep{ height:1px; background:#2a313b; margin:10px 4px; }
+  .sidebar-foot{ margin-top:auto; padding-top:10px; }
+  .user-chip{ display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:7px; background:#161b21; }
+  .user-avatar{ width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; flex:none; }
+  .user-name{ font-size:12.5px; font-weight:600; color:#fff; line-height:1.2; }
+  .user-role{ font-size:10.5px; color:#8891a0; text-transform:uppercase; letter-spacing:.05em; }
+  .main{ flex:1; min-width:0; }
+  .topbar{ position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:14px; padding:12px 26px; background:var(--paper); border-bottom:1px solid var(--line); }
+  .content{ padding:22px 26px 60px; max-width:1280px; }
+  .section-title{ font-size:20px; font-weight:800; margin:0 0 2px; }
+  .section-sub{ color:var(--slate); font-size:13px; margin:0 0 18px; }
+  .sync-dot{ width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px var(--ok-bg); }
+  .sync-dot.off{ background:var(--bad); box-shadow:0 0 0 3px var(--bad-bg); }
+  /* the wrapper must never swallow taps aimed at what's underneath it */
+  .toast-wrap{ position:fixed; bottom:18px; right:18px; display:flex; flex-direction:column; gap:8px; z-index:200; max-width:340px; pointer-events:none; }
+  .toast{ background:var(--ink); color:var(--concrete); padding:11px 14px; border-radius:8px; font-size:13px; box-shadow:var(--shadow); animation:toastin .18s ease; pointer-events:auto; }
+  :root:not([data-theme="light"]) .toast, :root[data-theme="dark"] .toast{ background:#2a313b; }
+  @keyframes toastin{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .readonly-banner{ background:var(--warn-bg); color:var(--warn); padding:9px 26px; font-size:12.8px; font-weight:600; text-align:center; }
+  .modal-back{ position:fixed; inset:0; background:rgba(10,12,15,.5); display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; z-index:140; overflow-y:auto; }
+  .modal{ background:var(--paper); border-radius:12px; max-width:640px; width:100%; box-shadow:var(--shadow); border:1px solid var(--line); }
+  .modal-head{ display:flex; align-items:center; padding:16px 20px; border-bottom:1px solid var(--line); }
+  .modal-body{ padding:18px 20px; max-height:70vh; overflow-y:auto; }
+  .modal-foot{ display:flex; justify-content:flex-end; gap:8px; padding:14px 20px; border-top:1px solid var(--line); }
+  .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; background:
+    radial-gradient(circle at 15% 10%, var(--accent-dim), transparent 45%), var(--concrete); }
+  .login-card{ width:100%; max-width:380px; }
+  .stat{ display:flex; flex-direction:column; gap:2px; padding:16px 18px; }
+  .stat .n{ font-family:"Archivo"; font-size:26px; font-weight:800; }
+  .stat .l{ font-size:11.5px; color:var(--slate); text-transform:uppercase; letter-spacing:.05em; font-weight:700; }
+  .scan-box{ background:var(--ink); border-radius:12px; padding:18px 20px; color:#fff; }
+  :root:not([data-theme="light"]) .scan-box, :root[data-theme="dark"] .scan-box{ background:#0d1013; }
+  .scan-box input{ background:#11151b; border:2px solid #313a46; color:#fff; font-size:20px; padding:14px 16px; border-radius:8px; }
+  .scan-box input:focus{ border-color:var(--accent); outline:none; }
+  .alert-flash{ border-radius:9px; padding:12px 16px; font-weight:700; font-size:14.5px; display:flex; align-items:center; gap:10px; margin-top:10px; }
+  .alert-ok{ background:#123c28; color:#7be3ab; }
+  .alert-warn{ background:#3a2b0a; color:#f0c565; }
+  .alert-bad{ background:#3a1512; color:#f3958a; }
+  .aim-guide{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  .aim-line{ width:82%; height:2px; background:rgba(255,90,70,.85); box-shadow:0 0 0 1px rgba(0,0,0,.35); border-radius:2px; }
+  .savestatus{ font-weight:600; }
+  .ss-ok{ color:var(--ok); }
+  .ss-busy{ color:var(--warn); }
+  .ss-bad{ color:var(--bad); }
+  .sidebar .savestatus, .mobilebar .savestatus{ color:#8891a0; }
+  .sidebar .ss-ok, .mobilebar .ss-ok{ color:#7fd6a8; }
+  .sidebar .ss-busy, .mobilebar .ss-busy{ color:#f0c565; }
+  .sidebar .ss-bad, .mobilebar .ss-bad{ color:#f3958a; }
+  .qty-edit{ width:78px; padding:5px 7px; text-align:right; }
+  .qty-edit:hover{ border-color:var(--slate-2); }
+  .enroll-panel{ margin-top:12px; background:#1a1207; border:2px solid #6b5416; border-radius:10px; padding:14px 16px; }
+  .enroll-filter{ width:100%; background:#11151b; border:1px solid #39424f; color:#fff; border-radius:7px; padding:9px 11px; font-size:14px; }
+  .enroll-filter:focus{ border-color:var(--accent); outline:none; }
+  .enroll-list{ max-height:240px; overflow-y:auto; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+  .enroll-opt{ display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:#11151b; border:1px solid #2c333d; color:#e9ebee; padding:9px 11px; border-radius:7px; font-size:13px; }
+  .enroll-opt:hover{ background:#1d2530; border-color:var(--accent); }
+  .enroll-desc{ font-weight:600; line-height:1.3; }
+  .enroll-meta{ font-size:11.5px; color:#8891a0; margin-top:2px; }
+  .enroll-tag{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:3px 7px; border-radius:5px; white-space:nowrap; flex:none; }
+  .diff-pos{ color:var(--warn); font-weight:700; }
+  .diff-neg{ color:var(--bad); font-weight:700; }
+  .diff-zero{ color:var(--ok); font-weight:700; }
+  .empty{ text-align:center; padding:40px 20px; color:var(--slate); }
+  .empty .ic{ font-size:28px; margin-bottom:8px; }
+  .badge-role{ font-size:10.5px; font-weight:700; text-transform:uppercase; padding:2px 7px; border-radius:5px; background:var(--accent-dim); color:var(--accent); letter-spacing:.04em; }
+  .kbd{ font-family:"IBM Plex Mono"; font-size:11px; background:var(--concrete); border:1px solid var(--line); padding:1px 6px; border-radius:4px; }
+  .flow{ display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:7px; }
+  .flow:hover{ background:var(--concrete); }
+  .search-input{ min-width:220px; }
+  hr.sep{ border:none; border-top:1px solid var(--line); margin:16px 0; }
+  .grid-2{ grid-template-columns:1fr 1fr; }
+  .grid-4{ grid-template-columns:repeat(4,1fr); }
+  .grid-6{ grid-template-columns:repeat(6,1fr); }
+
+  /* ---- mobile: the sidebar can't be the only way to navigate ---- */
+  .mobilebar, .mobilenav{ display:none; }
+  .mobilebar{
+    position:sticky; top:0; z-index:20; align-items:center; gap:10px;
+    padding:10px 14px; background:var(--ink); color:#fff;
+  }
+  :root:not([data-theme="light"]) .mobilebar, :root[data-theme="dark"] .mobilebar{ background:#0d1013; }
+  .mobilebar .brand-name{ font-size:14.5px; }
+  .mobilenav{
+    position:fixed; left:0; right:0; bottom:0; z-index:120;
+    background:var(--ink); border-top:1px solid #2a313b;
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    justify-content:space-around;
+  }
+  :root:not([data-theme="light"]) .mobilenav, :root[data-theme="dark"] .mobilenav{ background:#0d1013; }
+  .mnav{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+    background:transparent; border:none; color:#8891a0;
+    padding:7px 2px; border-radius:8px; font-size:10.5px; font-weight:700;
+    letter-spacing:.01em; min-height:52px; line-height:1.1;
+  }
+  .mnav .ic{ font-size:19px; line-height:1; }
+  .mnav.active{ color:#fff; background:var(--accent); }
+
+  @media (max-width:880px){
+    .sidebar{ display:none; }
+    .mobilebar{ display:flex; }
+    .mobilenav{ display:flex; }
+    .content{ padding:14px 14px 96px; }      /* room for the bottom bar */
+    .topbar{ display:none; }                  /* the mobile bar replaces it */
+    .grid-4{ grid-template-columns:1fr 1fr; }
+    .grid-6, .grid-2{ grid-template-columns:1fr; }
+    .section-title{ font-size:18px; }
+    .pad{ padding:14px 15px; }
+    .stat{ padding:12px 13px; }
+    .stat .n{ font-size:21px; }
+    .modal-back{ padding:0; align-items:stretch; }
+    .modal{ border-radius:0; min-height:100%; max-width:none; }
+    .modal-body{ max-height:none; }
+    .modal-foot{ position:sticky; bottom:0; background:var(--paper); }
+    .search-input{ min-width:0; width:100%; }
+    /* header rows pack a title plus several buttons — let them wrap instead of
+       forcing the page wider than the screen (which makes the browser zoom out) */
+    .row{ flex-wrap:wrap; }
+    .row.wrap{ gap:8px; }
+    .spacer{ flex-basis:100%; height:0; }
+    /* a checkbox must stay beside its label, not wrap onto its own line */
+    .chk{ flex-wrap:nowrap; align-items:flex-start; }
+    .chk input[type=checkbox]{ flex:none; margin-top:2px; width:20px; height:20px; }
+    /* touch targets */
+    .btn{ padding:11px 15px; font-size:14px; }
+    .btn-sm{ padding:8px 12px; font-size:13px; }
+    .navbtn, .enroll-opt{ min-height:46px; }
+    input, select, textarea{ font-size:16px; }  /* stops iOS zooming on focus */
+    .qty-edit{ width:70px; font-size:16px; }
+    thead th, tbody td{ padding:10px 9px; }
+    .scan-box{ padding:14px 15px; }
+    .scan-box input{ font-size:18px; padding:13px 14px; }
+    .enroll-list{ max-height:46vh; }
+    /* keep toasts clear of the bottom tab bar */
+    .toast-wrap{ bottom:84px; left:12px; right:12px; max-width:none; }
+    /* On a phone the scanner is the job — put it above the summary cards and
+       shipment paperwork so an employee never scrolls to reach it. */
+    .detail-stack{ display:flex; flex-direction:column; }
+    .d-navrow  { order:0; }
+    .d-scan    { order:1; }
+    .d-stats   { order:2; }
+    .d-lines   { order:3; }
+    .d-info    { order:4; }
+    .d-pallet  { order:5; }
+    .d-feed    { order:6; }
+    .d-complete{ order:7; }
+  }
+  @media (max-width:420px){
+    .mnav{ font-size:9.5px; }
+    .mnav .ic{ font-size:18px; }
+    .grid-4{ grid-template-columns:1fr 1fr; }
+  }
+</style>
+
+<div id="app"></div>
+<div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
+
+<!-- ============ SHARED LIVE DATA STORE (synced across every open device) ============ -->
+<div id="db" artifact-sync hidden>
+  <div id="settings" data-teampin="1234" data-seeded="true"></div>
+  <div id="roster">
+    <div class="employee" data-rid="u-owner" data-name="Owner" data-role="admin" data-active="true" data-owner="true"></div>
+    <div class="employee" data-rid="u-demo" data-name="Sam (demo employee)" data-role="employee" data-active="true" data-owner="false"></div>
+  </div>
+  <div id="skuMaster">
+    <div class="sku" data-rid="sk-demo1" data-sku="DEMO-100" data-desc="Sample Item — 12oz Widget" data-barcodes="012345678905" data-active="true"></div>
+    <div class="sku" data-rid="sk-demo2" data-sku="DEMO-200" data-desc="Sample Item — Case of 6" data-barcodes="098765432109,611234567890" data-active="true"></div>
+  </div>
+  <div id="clients"></div>
+  <div id="shipments"></div>
+  <div id="auditLog"></div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------------------------------------------------------------- helpers */
+function $(sel,root){ return (root||document).querySelector(sel); }
+function $$(sel,root){ return Array.from((root||document).querySelectorAll(sel)); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function cssEsc(s){ return String(s).replace(/["\\]/g,'\\$&'); }
+function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function fmtDate(iso){ if(!iso) return '—'; var d=new Date(iso); if(isNaN(d)) return iso; return d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+function fmtDateTime(iso){ if(!iso) return '—'; var d=new Date(iso); if(isNaN(d)) return iso; return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function todayStr(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function initials(name){ var p=(name||'?').trim().split(/\s+/); return ((p[0]||'')[0]||'?').toUpperCase()+((p[1]||'')[0]||'').toUpperCase(); }
+
+/* ---------------------------------------------------------------- db refs */
+var dbRoot, settingsEl, rosterEl, skuMasterEl, shipmentsEl, auditLogEl, clientsEl;
+function bindDbRefs(){
+  dbRoot = $('#db'); settingsEl = $('#settings',dbRoot); rosterEl = $('#roster',dbRoot);
+  skuMasterEl = $('#skuMaster',dbRoot); shipmentsEl = $('#shipments',dbRoot); auditLogEl = $('#auditLog',dbRoot);
+  clientsEl = $('#clients',dbRoot);
+}
+
+/* ---------------------------------------------------------------- runtime state (per-device, not shared) */
+var artifactApi = null;
+var readOnly = false;
+var currentUser = null; // {id,name,role}
+var view = {tab:'shipments', shipmentId:null, clientId:null};
+var cameraStream=null, cameraRAF=null, scanRefocusTimer=null;
+/* A USB/Bluetooth scanner types into a focused field, so on desktop we keep that field
+   focused constantly. On a touch device that would re-open the on-screen keyboard every
+   second, so it defaults off there and the operator turns it on if they pair a scanner. */
+var isTouchDevice = (function(){
+  try{ return window.matchMedia('(pointer: coarse)').matches; }catch(e){ return false; }
+})();
+var keyboardScanMode = !isTouchDevice;
+try{
+  var savedKsm=sessionStorage.getItem('dr_ksm');
+  if(savedKsm!==null) keyboardScanMode = savedKsm==='1';
+}catch(e){}
+function setKeyboardScanMode(on){
+  keyboardScanMode=!!on;
+  try{ sessionStorage.setItem('dr_ksm', keyboardScanMode?'1':'0'); }catch(e){}
+}
+try{ var savedView = JSON.parse(sessionStorage.getItem('dr_view')||'null'); if(savedView) view=savedView; }catch(e){}
+try{ var savedUser = JSON.parse(sessionStorage.getItem('dr_user')||'null'); if(savedUser) currentUser=savedUser; }catch(e){}
+
+function saveViewState(){ try{ sessionStorage.setItem('dr_view', JSON.stringify(view)); }catch(e){} }
+
+/* ---------------------------------------------------------------- save status
+   Every change writes straight to the shared store — there is no "unsaved" state to
+   lose. This just makes that visible so nobody wonders whether their work stuck. */
+var saveState='saved', saveTimer=null, lastSavedAt=null;
+function markSaving(){
+  saveState='saving';
+  paintSaveStatus();
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(function(){
+    if(readOnly){ saveState='readonly'; } else { saveState='saved'; lastSavedAt=new Date(); }
+    paintSaveStatus();
+  }, 450);
+}
+function saveStatusText(){
+  if(readOnly) return '👁 Read-only — changes are not saved';
+  if(saveState==='saving') return '⟳ Saving…';
+  return '✓ All changes saved'+(lastSavedAt? ' · '+lastSavedAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+}
+function paintSaveStatus(){
+  $$('.savestatus').forEach(function(el){
+    el.textContent=saveStatusText();
+    el.className='savestatus small'+(readOnly?' ss-bad':(saveState==='saving'?' ss-busy':' ss-ok'));
+  });
+}
+function goto(tab, shipmentId){
+  if(!(tab==='shipments' && shipmentId===view.shipmentId)){ pendingEnroll=[]; enrollFilter=''; }
+  view={tab:tab, shipmentId:shipmentId||null, clientId:null}; saveViewState(); render();
+}
+
+/* ---------------------------------------------------------------- toast */
+function toast(msg, kind){
+  var wrap=$('#toastWrap'); if(!wrap) return;
+  var t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  if(kind==='bad'){ t.style.background = getComputedStyle(document.documentElement).getPropertyValue('--bad'); t.style.color='#fff'; }
+  wrap.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 3600);
+}
+
+/* ---------------------------------------------------------------- audio beep */
+var audioCtx=null;
+function beep(kind){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    var now=audioCtx.currentTime;
+    function tone(freq, start, dur, peak){
+      var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+      o.type='square'; o.frequency.value=freq; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0.0001, now+start);
+      g.gain.exponentialRampToValueAtTime(peak, now+start+0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, now+start+dur);
+      o.start(now+start); o.stop(now+start+dur+0.02);
+    }
+    if(kind==='ok'){ tone(1500,0,0.09,0.25); }
+    else if(kind==='warn'){ tone(720,0,0.15,0.28); }
+    else { tone(220,0,0.14,0.32); tone(220,0.18,0.16,0.32); }
+  }catch(e){}
+}
+
+/* ---------------------------------------------------------------- db read helpers */
+function activeRoster(){ return $$('.employee',rosterEl); }
+function findEmployee(id){ return $('.employee[data-rid="'+cssEsc(id)+'"]',rosterEl); }
+function allSkus(){ return $$('.sku',skuMasterEl); }
+function findSkuByCode(code){ return $$('.sku',skuMasterEl).find(function(s){ return s.getAttribute('data-sku')===code; }); }
+/* A UPC-A label reads as 12 digits on a USB scanner but 13 (leading zero) from the camera
+   decoder, and some scanners strip it. Treat those forms as the same barcode. */
+function barcodeVariants(code){
+  code=String(code||'').trim();
+  var out=[code];
+  if(/^\d{13}$/.test(code) && code.charAt(0)==='0') out.push(code.slice(1));
+  if(/^\d{12}$/.test(code)) out.push('0'+code);
+  if(/^\d{14}$/.test(code) && code.charAt(0)==='0') out.push(code.slice(1));
+  if(/^\d{13}$/.test(code)) out.push('0'+code);
+  return out;
+}
+function findSkuByBarcode(code){
+  code=(code||'').trim(); if(!code) return null;
+  var variants=barcodeVariants(code);
+  return $$('.sku',skuMasterEl).find(function(s){
+    if(s.getAttribute('data-active')==='false') return false;
+    var codes=(s.getAttribute('data-barcodes')||'').split(',').map(function(x){return x.trim();});
+    for(var i=0;i<variants.length;i++){
+      if(codes.indexOf(variants[i])>-1) return true;
+    }
+    return s.getAttribute('data-sku')===code;
+  }) || null;
+}
+/* ---------------------------------------------------------------- clients */
+function allClients(){ return clientsEl? $$('.client',clientsEl) : []; }
+function findClient(id){ return $('.client[data-rid="'+cssEsc(id)+'"]',clientsEl); }
+function findClientByName(name){
+  var n=normDesc(name); if(!n) return null;
+  return allClients().find(function(c){ return normDesc(c.getAttribute('data-name'))===n; }) || null;
+}
+/* shipments are stored with the client NAME, so history works for records created
+   before a client was ever added to the registry */
+function shipmentsForClient(name){
+  var n=normDesc(name);
+  return allShipments().filter(function(s){ return normDesc(s.getAttribute('data-client'))===n; });
+}
+function ensureClient(name){
+  name=String(name||'').trim();
+  if(!name) return null;
+  var existing=findClientByName(name);
+  if(existing) return existing;
+  var el=document.createElement('div'); el.className='client';
+  el.setAttribute('data-rid', uid());
+  el.setAttribute('data-name', name);
+  el.setAttribute('data-contact',''); el.setAttribute('data-notes','');
+  el.setAttribute('data-active','true');
+  el.setAttribute('data-createdat', new Date().toISOString());
+  clientsEl.appendChild(el);
+  return el;
+}
+function clientStats(name){
+  var ships=shipmentsForClient(name);
+  var containers=ships.length, completed=0, discrepancies=0, expTot=0, scanTot=0, last='';
+  ships.forEach(function(s){
+    var done=s.getAttribute('data-status')==='Completed';
+    if(done) completed++;
+    var t=shipmentTotals(s);
+    expTot+=t.expTot; scanTot+=t.scanTot;
+    // only a closed shipment can truly be short or over; an open one is just mid-unload
+    if(done && t.discrepancy) discrepancies++;
+    var d=s.getAttribute('data-date')||'';
+    if(d>last) last=d;
+  });
+  return {containers:containers, completed:completed, open:containers-completed,
+          discrepancies:discrepancies, expTot:expTot, scanTot:scanTot, last:last};
+}
+
+function allShipments(){ return $$('.shipment',shipmentsEl); }
+function findShipment(id){ return $('.shipment[data-rid="'+cssEsc(id)+'"]',shipmentsEl); }
+function shipmentLines(sh){ return $$('.line',sh); }
+function shipmentScans(sh){ return $$('.scan',sh); }
+function activeScans(sh){ return shipmentScans(sh).filter(function(s){ return s.getAttribute('data-void')!=='true'; }); }
+function countScans(sh, sku){
+  return activeScans(sh).filter(function(s){ return s.getAttribute('data-sku')===sku && (s.getAttribute('data-result')==='ok'||s.getAttribute('data-result')==='exceeds'); }).length;
+}
+function unexpectedScans(sh){
+  return activeScans(sh).filter(function(s){ return s.getAttribute('data-result')==='unexpected'; });
+}
+function shipmentTotals(sh){
+  var lines=shipmentLines(sh); var expTot=0, scanTot=0, discrepancy=false;
+  lines.forEach(function(l){
+    var exp=parseInt(l.getAttribute('data-expected')||'0',10);
+    var got=countScans(sh,l.getAttribute('data-sku'));
+    expTot+=exp; scanTot+=got;
+    if(got!==exp) discrepancy=true;
+  });
+  var extras = {}; unexpectedScans(sh).forEach(function(s){ var k=s.getAttribute('data-sku'); extras[k]=(extras[k]||0)+1; });
+  if(Object.keys(extras).length) discrepancy=true;
+  return {expTot:expTot, scanTot:scanTot, discrepancy:discrepancy, extras:extras};
+}
+
+/* ---------------------------------------------------------------- audit + record writers */
+function appendAuditRaw(action, detail){
+  markSaving();
+  var rec=document.createElement('div');
+  rec.className='entry';
+  rec.setAttribute('data-ts', new Date().toISOString());
+  rec.setAttribute('data-user', currentUser?currentUser.name:'system');
+  rec.setAttribute('data-action', action);
+  rec.setAttribute('data-detail', detail);
+  auditLogEl.appendChild(rec);
+}
+
+/* wraps a mutation fn: uses sync() when there's no live user gesture (bulk import, camera scans),
+   otherwise runs directly since it's already inside a gesture handler */
+async function withSync(fn, viaSync){
+  if(viaSync && artifactApi){
+    try{ await artifactApi.sync(fn); }
+    catch(err){ handleWriteError(err); throw err; }
+  } else {
+    fn();
+  }
+}
+function handleWriteError(err){
+  if(err && (err.code==='not_writer'||err.code==='not_granted'||err.code==='capability_disabled')){
+    if(!readOnly){ readOnly=true; toast('This view is read-only — changes here will not be saved. Ask the owner for edit access.','bad'); render(); }
+  } else if(err && err.code==='rate_limited'){
+    toast('Syncing is catching up — slow down slightly and try again.','bad');
+  } else if(err){
+    toast('Could not save that change: '+(err.message||err.code||'unknown error'),'bad');
+  }
+}
+
+/* ---------------------------------------------------------------- login */
+function isAdmin(){ return currentUser && currentUser.role==='admin'; }
+
+function renderLogin(){
+  var opts = activeRoster().map(function(e){ return '<option value="'+esc(e.getAttribute('data-rid'))+'">'+esc(e.getAttribute('data-name'))+(e.getAttribute('data-role')==='admin'?' (admin)':'')+'</option>'; }).join('');
+  var isDefaultPin = settingsEl && settingsEl.getAttribute('data-seeded')==='true';
+  var pinHint = isDefaultPin
+    ? '<div class="small" style="background:var(--accent-dim);color:var(--accent);padding:10px 12px;border-radius:7px;margin-bottom:14px;">First time here? This shipment tracker hasn\'t been set up yet — the default team PIN is <strong class="mono">'+esc(settingsEl.getAttribute('data-teampin'))+'</strong>. Log in as an admin and change it under Users &amp; Security.</div>'
+    : '';
+  return '' +
+  '<div class="login-wrap">'+
+    '<div class="login-card card pad">'+
+      '<div class="row" style="margin-bottom:16px;">'+
+        '<div class="brand-mark" style="background:var(--accent);">📦</div>'+
+        '<div><div class="disp" style="font-weight:800;font-size:18px;">Dockside Receiving</div><div class="small muted">Warehouse receiving &amp; barcode verification</div></div>'+
+      '</div>'+
+      pinHint+
+      '<form id="loginForm" class="col" style="gap:14px;">'+
+        '<div class="field"><label for="loginName">Your name</label><select id="loginName" required>'+ (opts||'<option value="">No active employees — ask an admin to add you</option>') +'</select></div>'+
+        '<div class="field"><label for="loginPin">Team PIN</label><input id="loginPin" type="password" inputmode="numeric" placeholder="••••" required></div>'+
+        '<button class="btn btn-primary" type="submit" style="justify-content:center;">Clock in</button>'+
+        '<div class="small muted">PIN is shared by the whole team for accountability, not a security boundary — anyone with edit access to this page can see it in the page source. Ask an admin if you don\'t have it.</div>'+
+      '</form>'+
+    '</div>'+
+  '</div>';
+}
+function wireLogin(){
+  var f=$('#loginForm'); if(!f) return;
+  f.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var id=$('#loginName').value, pin=$('#loginPin').value;
+    var emp=findEmployee(id);
+    if(!emp){ toast('Pick your name from the list.','bad'); return; }
+    var teamPin = settingsEl.getAttribute('data-teampin')||'';
+    if(pin!==teamPin){ toast('Incorrect team PIN.','bad'); return; }
+    currentUser={id:emp.getAttribute('data-rid'), name:emp.getAttribute('data-name'), role:emp.getAttribute('data-role')};
+    try{ sessionStorage.setItem('dr_user', JSON.stringify(currentUser)); }catch(e){}
+    appendAuditRaw('login', currentUser.name+' logged in');
+    goto('shipments');
+  });
+}
+function logout(){
+  appendAuditRaw('logout', currentUser?currentUser.name+' logged out':'logout');
+  currentUser=null;
+  try{ sessionStorage.removeItem('dr_user'); }catch(e){}
+  stopCamera();
+  render();
+}
+
+/* ---------------------------------------------------------------- CSV utils */
+function parseCSV(text){
+  var rows=[], row=[], field='', inQ=false;
+  for(var i=0;i<text.length;i++){
+    var c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inQ=true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\r'){ /* skip */ }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else field+=c;
+    }
+  }
+  if(field.length||row.length){ row.push(field); rows.push(row); }
+  return rows.filter(function(r){ return !(r.length===1 && r[0].trim()===''); });
+}
+function toCSV(rows){
+  return rows.map(function(r){ return r.map(function(v){
+    v=(v==null?'':String(v));
+    return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+  }).join(','); }).join('\r\n');
+}
+
+/* ---------------------------------------------------------------- minimal raw DEFLATE inflate (RFC1951) — needed to read real .xlsx files client-side, no libraries allowed in an artifact */
+function inflateRaw(data){
+  var pos=0, bitpos=0;
+  function bit(){
+    var byte=data[pos];
+    var b=(byte>>bitpos)&1;
+    bitpos++; if(bitpos===8){bitpos=0;pos++;}
+    return b;
+  }
+  function bits(n){ var v=0; for(var i=0;i<n;i++) v|=bit()<<i; return v; }
+  function alignByte(){ if(bitpos!==0){bitpos=0;pos++;} }
+
+  var outBuf=new Uint8Array(Math.max(data.length*4,1024));
+  var outLen=0;
+  function ensure(n){
+    if(outLen+n>outBuf.length){
+      var nb=new Uint8Array(Math.max(outBuf.length*2, outLen+n));
+      nb.set(outBuf.subarray(0,outLen));
+      outBuf=nb;
+    }
+  }
+  function pushByte(b){ ensure(1); outBuf[outLen++]=b; }
+
+  function buildHuffman(lengths){
+    var maxBits=0;
+    for(var i=0;i<lengths.length;i++) if(lengths[i]>maxBits) maxBits=lengths[i];
+    var blCount=new Array(maxBits+1).fill(0);
+    for(i=0;i<lengths.length;i++) if(lengths[i]>0) blCount[lengths[i]]++;
+    var code=0, nextCode=new Array(maxBits+1).fill(0);
+    for(var bl=1; bl<=maxBits; bl++){ code=(code+blCount[bl-1])<<1; nextCode[bl]=code; }
+    var map=Object.create(null);
+    for(i=0;i<lengths.length;i++){
+      var len=lengths[i];
+      if(len>0){ map[len+':'+nextCode[len]]=i; nextCode[len]++; }
+    }
+    return {map:map, maxBits:maxBits};
+  }
+  function decodeSymbol(tree){
+    var code=0, len=0;
+    while(len<=tree.maxBits){
+      code=(code<<1)|bit(); len++;
+      var got=tree.map[len+':'+code];
+      if(got!==undefined) return got;
+    }
+    throw new Error('bad huffman code');
+  }
+
+  var LEN_BASE=[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+  var LEN_EXTRA=[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+  var DIST_BASE=[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+  var DIST_EXTRA=[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+  var CLC_ORDER=[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+
+  var fixedLit=null, fixedDist=null;
+  function getFixedTrees(){
+    if(fixedLit) return;
+    var litLens=new Array(288), i=0;
+    for(;i<144;i++) litLens[i]=8;
+    for(;i<256;i++) litLens[i]=9;
+    for(;i<280;i++) litLens[i]=7;
+    for(;i<288;i++) litLens[i]=8;
+    fixedLit=buildHuffman(litLens);
+    fixedDist=buildHuffman(new Array(30).fill(5));
+  }
+
+  var final=0;
+  while(!final){
+    final=bits(1);
+    var type=bits(2);
+    if(type===0){
+      alignByte();
+      var len=data[pos]|(data[pos+1]<<8); pos+=2; pos+=2;
+      for(var k=0;k<len;k++) pushByte(data[pos++]);
+    } else if(type===1 || type===2){
+      var litTree, distTree;
+      if(type===1){ getFixedTrees(); litTree=fixedLit; distTree=fixedDist; }
+      else{
+        var hlit=bits(5)+257, hdist=bits(5)+1, hclen=bits(4)+4;
+        var clLens=new Array(19).fill(0);
+        for(var c=0;c<hclen;c++) clLens[CLC_ORDER[c]]=bits(3);
+        var clTree=buildHuffman(clLens);
+        var lens=[];
+        while(lens.length<hlit+hdist){
+          var sym=decodeSymbol(clTree);
+          if(sym<16) lens.push(sym);
+          else if(sym===16){ var rep=bits(2)+3, prev=lens[lens.length-1]; for(var r=0;r<rep;r++) lens.push(prev); }
+          else if(sym===17){ var rep2=bits(3)+3; for(var r2=0;r2<rep2;r2++) lens.push(0); }
+          else { var rep3=bits(7)+11; for(var r3=0;r3<rep3;r3++) lens.push(0); }
+        }
+        litTree=buildHuffman(lens.slice(0,hlit));
+        distTree=buildHuffman(lens.slice(hlit,hlit+hdist));
+      }
+      while(true){
+        var symv=decodeSymbol(litTree);
+        if(symv<256) pushByte(symv);
+        else if(symv===256) break;
+        else{
+          var li=symv-257;
+          var length=LEN_BASE[li]+bits(LEN_EXTRA[li]);
+          var dsym=decodeSymbol(distTree);
+          var dist=DIST_BASE[dsym]+bits(DIST_EXTRA[dsym]);
+          var startAt=outLen-dist;
+          ensure(length);
+          for(var m=0;m<length;m++){ outBuf[outLen]=outBuf[startAt+m]; outLen++; }
+        }
+      }
+    } else { throw new Error('bad deflate block type'); }
+  }
+  return outBuf.subarray(0,outLen);
+}
+
+/* ---------------------------------------------------------------- minimal ZIP local-file-header reader */
+function readZipEntries(buf){
+  var view=new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  var entries={}; var pos=0;
+  while(pos+30<=buf.length){
+    var sig=view.getUint32(pos,true);
+    if(sig!==0x04034b50) break;
+    var flags=view.getUint16(pos+6,true);
+    var method=view.getUint16(pos+8,true);
+    var compSize=view.getUint32(pos+18,true);
+    var nameLen=view.getUint16(pos+26,true);
+    var extraLen=view.getUint16(pos+28,true);
+    var nameStart=pos+30;
+    var name=new TextDecoder('utf-8').decode(buf.subarray(nameStart,nameStart+nameLen));
+    var dataStart=nameStart+nameLen+extraLen;
+    if((flags&0x8)!==0 && compSize===0){
+      var end=buf.length;
+      for(var p=dataStart;p<buf.length-4;p++){
+        var s=view.getUint32(p,true);
+        if(s===0x04034b50||s===0x02014b50){ end=p; break; }
+      }
+      compSize=end-dataStart;
+    }
+    var raw=buf.subarray(dataStart,dataStart+compSize);
+    var content = method===8 ? inflateRaw(raw) : (method===0 ? raw : null);
+    entries[name]=content;
+    pos=dataStart+compSize;
+    if((flags&0x8)!==0){
+      if(view.getUint32(pos,true)===0x08074b50) pos+=16; else pos+=12;
+    }
+  }
+  return entries;
+}
+
+/* ---------------------------------------------------------------- minimal XLSX -> rows[][] (same shape as parseCSV) */
+function colToIndex(ref){
+  var m=/^([A-Z]+)(\d+)$/.exec(ref);
+  if(!m) return 0;
+  var col=m[1], n=0;
+  for(var i=0;i<col.length;i++) n=n*26+(col.charCodeAt(i)-64);
+  return n-1;
+}
+function parseXLSX(buf){
+  var entries=readZipEntries(buf);
+  var dec=new TextDecoder('utf-8');
+  function xml(name){ var c=entries[name]; return c? dec.decode(c): null; }
+
+  var shared=[];
+  var ssXml=xml('xl/sharedStrings.xml');
+  if(ssXml){
+    var ssDoc=new DOMParser().parseFromString(ssXml,'application/xml');
+    var siNodes=ssDoc.getElementsByTagName('si');
+    for(var i=0;i<siNodes.length;i++){
+      var tNodes=siNodes[i].getElementsByTagName('t');
+      var text=''; for(var j=0;j<tNodes.length;j++) text+=tNodes[j].textContent;
+      shared.push(text);
+    }
+  }
+
+  var sheetPath='xl/worksheets/sheet1.xml';
+  var wbXml=xml('xl/workbook.xml');
+  var relsXml=xml('xl/_rels/workbook.xml.rels');
+  if(wbXml && relsXml){
+    try{
+      var wbDoc=new DOMParser().parseFromString(wbXml,'application/xml');
+      var relsDoc=new DOMParser().parseFromString(relsXml,'application/xml');
+      var sheetsNodes=wbDoc.getElementsByTagName('sheet');
+      if(sheetsNodes.length){
+        var rid=sheetsNodes[0].getAttribute('r:id');
+        var relNodes=relsDoc.getElementsByTagName('Relationship');
+        for(var k=0;k<relNodes.length;k++){
+          if(relNodes[k].getAttribute('Id')===rid){
+            var target=relNodes[k].getAttribute('Target');
+            sheetPath='xl/'+target.replace(/^\.?\//,'');
+            break;
+          }
+        }
+      }
+    }catch(e){}
+  }
+  var sheetXml=xml(sheetPath) || xml('xl/worksheets/sheet1.xml');
+  if(!sheetXml){
+    for(var name in entries){ if(/^xl\/worksheets\/sheet\d+\.xml$/.test(name)){ sheetXml=dec.decode(entries[name]); break; } }
+  }
+  if(!sheetXml) return [];
+
+  var doc=new DOMParser().parseFromString(sheetXml,'application/xml');
+  var rowNodes=doc.getElementsByTagName('row');
+  var rows=[];
+  for(var ri=0; ri<rowNodes.length; ri++){
+    var cellNodes=rowNodes[ri].getElementsByTagName('c');
+    var rowArr=[];
+    for(var ci=0; ci<cellNodes.length; ci++){
+      var cEl=cellNodes[ci];
+      var ref=cEl.getAttribute('r')||'';
+      var idx=ref? colToIndex(ref): ci;
+      var type=cEl.getAttribute('t');
+      var val='';
+      if(type==='inlineStr'){
+        var isNode=cEl.getElementsByTagName('is')[0];
+        if(isNode){ var tN=isNode.getElementsByTagName('t'); for(var q=0;q<tN.length;q++) val+=tN[q].textContent; }
+      } else {
+        var vNode=cEl.getElementsByTagName('v')[0];
+        var raw=vNode? vNode.textContent : '';
+        if(type==='s') val=shared[parseInt(raw,10)]||'';
+        else if(type==='b') val=raw==='1'?'TRUE':'FALSE';
+        else val=raw;
+      }
+      while(rowArr.length<idx) rowArr.push('');
+      rowArr[idx]=val;
+    }
+    rows.push(rowArr);
+  }
+  return rows.filter(function(r){ return r.some(function(v){ return String(v||'').trim()!==''; }); });
+}
+
+/* reads a .csv or .xlsx File into the same rows[][] shape, so every import handler can stay format-agnostic */
+async function parseTabularFile(file){
+  var name=(file.name||'').toLowerCase();
+  if(name.endsWith('.xlsx')){
+    var buf=new Uint8Array(await file.arrayBuffer());
+    var rows=parseXLSX(buf);
+    if(!rows.length) throw new Error('No data found in that spreadsheet — is the first sheet the one with your data?');
+    return rows;
+  }
+  if(name.endsWith('.xls')){
+    throw new Error('That looks like an old-format .xls file. Please re-save it as .xlsx or .csv in Excel and import that instead.');
+  }
+  var text=await file.text();
+  var rows=parseCSV(text);
+  if(!rows.length) throw new Error('That file appears empty.');
+  return rows;
+}
+
+function findCol(headers, aliases){
+  for(var i=0;i<headers.length;i++){
+    var h=String(headers[i]||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    for(var j=0;j<aliases.length;j++){ if(h===aliases[j]) return i; }
+  }
+  return -1;
+}
+/* looser variant: matches a column whose header CONTAINS any alias, for real-world headers
+   like "Quantity of Master Cases" that never equal a clean keyword */
+function findColLoose(headers, aliases){
+  for(var i=0;i<headers.length;i++){
+    var h=String(headers[i]||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    if(!h) continue;
+    for(var j=0;j<aliases.length;j++){ if(h.indexOf(aliases[j])>-1) return i; }
+  }
+  return -1;
+}
+
+/* ---------------------------------------------------------------- messy-spreadsheet helpers */
+/* Real packing slips bury the header row under a letterhead block. Score the first rows and
+   pick the one that reads most like column headings. */
+function detectHeaderRow(rows){
+  var KEYS=['description','desc','sku','barcode','upc','item','product','qty','quantity','cases','units','pallet','extra'];
+  var best=0, bestScore=0;
+  var limit=Math.min(rows.length, 25);
+  for(var i=0;i<limit;i++){
+    var row=rows[i]||[], score=0, filled=0;
+    for(var c=0;c<row.length;c++){
+      var v=String(row[c]||'').toLowerCase().replace(/[^a-z]/g,'');
+      if(!v) continue;
+      filled++;
+      for(var k=0;k<KEYS.length;k++){ if(v.indexOf(KEYS[k])>-1){ score+=3; break; } }
+    }
+    if(filled>=2) score+=1;
+    if(score>bestScore){ bestScore=score; best=i; }
+  }
+  return bestScore>0 ? best : 0;
+}
+/* column letter, the way the spreadsheet shows it */
+function colLetter(i){
+  var s=''; i=i+1;
+  while(i>0){ var m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); }
+  return s;
+}
+/* a human label for a column in the mapping dropdowns: its heading, else a sample value */
+function colLabel(idx, headerRow, rows, headerIdx){
+  var head=String((headerRow||[])[idx]||'').trim();
+  if(head) return colLetter(idx)+' — '+(head.length>44?head.slice(0,44)+'…':head);
+  for(var r=headerIdx+1; r<Math.min(rows.length, headerIdx+8); r++){
+    var v=String((rows[r]||[])[idx]||'').trim();
+    if(v) return colLetter(idx)+' — e.g. '+(v.length>36?v.slice(0,36)+'…':v);
+  }
+  return colLetter(idx)+' — (empty)';
+}
+function widestRowLength(rows){
+  var w=0; for(var i=0;i<rows.length;i++) if((rows[i]||[]).length>w) w=(rows[i]||[]).length;
+  return w;
+}
+/* how many rows below the header actually carry a value — used to prefer the fully populated
+   quantity column over a merged-cell subtotal column, which is mostly blank */
+function columnFillCount(rows, idx, headerIdx){
+  var n=0;
+  for(var r=headerIdx+1;r<rows.length;r++){ if(String((rows[r]||[])[idx]||'').trim()) n++; }
+  return n;
+}
+function looksNumericColumn(rows, idx, headerIdx){
+  var num=0, tot=0;
+  for(var r=headerIdx+1;r<rows.length;r++){
+    var v=String((rows[r]||[])[idx]||'').trim();
+    if(!v) continue;
+    tot++; if(/^[0-9][0-9,.\s]*$/.test(v)) num++;
+  }
+  return tot>0 && num/tot>=0.8;
+}
+function columnSum(rows, idx, headerIdx){
+  var s=0;
+  for(var r=headerIdx+1;r<rows.length;r++){
+    var n=parseFloat(String((rows[r]||[])[idx]||'').replace(/[^0-9.-]/g,''));
+    if(isFinite(n)) s+=n;
+  }
+  return s;
+}
+function dataRowCount(rows, headerIdx){ return Math.max(rows.length-headerIdx-1, 1); }
+/* A packing slip often carries a per-CATEGORY subtotal beside the per-LINE quantity: the
+   subtotal sits on the first row of its group (merged in Excel, so the rest come through
+   blank) and equals the sum of that group's line quantities. Detect it so we never mistake
+   a group total for a line quantity. */
+function isSubtotalColumn(rows, subIdx, lineIdx, headerIdx){
+  var groups=0, matches=0, curTotal=0, running=0, started=false;
+  for(var r=headerIdx+1;r<rows.length;r++){
+    var sv=String((rows[r]||[])[subIdx]||'').trim();
+    var lv=parseFloat(String((rows[r]||[])[lineIdx]||'').replace(/[^0-9.-]/g,''));
+    if(sv){
+      if(started){ groups++; if(Math.abs(running-curTotal)<0.0001) matches++; }
+      curTotal=parseFloat(sv.replace(/[^0-9.-]/g,''))||0; running=0; started=true;
+    }
+    if(isFinite(lv)) running+=lv;
+  }
+  if(started){ groups++; if(Math.abs(running-curTotal)<0.0001) matches++; }
+  return groups>=2 && (matches/groups)>=0.8;
+}
+/* A "units per case" column repeats a handful of large round pack sizes (720, 1080, 1440…)
+   rather than varying per line — never the number of cases received. */
+function looksLikePackSize(rows, idx, headerIdx){
+  var vals=[], distinct=Object.create(null);
+  for(var r=headerIdx+1;r<rows.length;r++){
+    var n=parseFloat(String((rows[r]||[])[idx]||'').replace(/[^0-9.-]/g,''));
+    if(isFinite(n)){ vals.push(n); distinct[n]=1; }
+  }
+  if(vals.length<4) return false;
+  var big=vals.filter(function(v){ return v>=300; }).length;
+  var distinctCount=Object.keys(distinct).length;
+  return (big/vals.length)>0.7 && distinctCount<=Math.max(3, vals.length*0.4);
+}
+/* Excel keeps dates as a serial number; convert when a cell looks like one */
+function excelSerialToISO(v){
+  var n=Number(v);
+  if(!isFinite(n) || n<20000 || n>80000) return '';
+  var ms=Date.UTC(1899,11,30)+Math.round(n)*86400000;
+  var d=new Date(ms);
+  if(isNaN(d)) return '';
+  return d.toISOString().slice(0,10);
+}
+function looseDateToISO(v){
+  v=String(v||'').trim(); if(!v) return '';
+  var serial=excelSerialToISO(v); if(serial) return serial;
+  var d=new Date(v);
+  if(!isNaN(d) && v.length>=6) return d.toISOString().slice(0,10);
+  return '';
+}
+/* scan the block above the table for "No:", "Container:", "Date:" style label/value pairs */
+function sniffHeaderFields(rows, headerIdx){
+  var out={po:'', container:'', date:'', supplier:''};
+  for(var r=0;r<headerIdx;r++){
+    var row=rows[r]||[];
+    for(var c=0;c<row.length;c++){
+      var label=String(row[c]||'').toLowerCase().replace(/[^a-z]/g,'');
+      if(!label) continue;
+      var val='';
+      for(var n=c+1;n<Math.min(row.length,c+4);n++){ if(String(row[n]||'').trim()){ val=String(row[n]).trim(); break; } }
+      if(!val) continue;
+      if(!out.po && (label==='no'||label==='nos'||label==='pono'||label==='ponumber'||label==='packingslip'||label==='invoice'||label==='invoiceno')) out.po=val;
+      else if(!out.container && label.indexOf('container')>-1) out.container=val;
+      else if(!out.date && label==='date') out.date=looseDateToISO(val);
+      else if(!out.supplier && (label.indexOf('supplier')>-1||label.indexOf('vendor')>-1)) out.supplier=val;
+    }
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------- description-based item identity
+   Many packing slips carry no SKU at all — the description IS the product. These derive a stable
+   code from the description so the same item maps to the same record across containers. */
+function normDesc(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function descHash(s){
+  var h=5381; s=normDesc(s);
+  for(var i=0;i<s.length;i++){ h=(((h*33)^s.charCodeAt(i))>>>0); }
+  return h;
+}
+function autoSkuFromDesc(desc){ return 'ITM-'+descHash(desc).toString(36).toUpperCase().padStart(7,'0').slice(-7); }
+function findSkuByDesc(desc){
+  var n=normDesc(desc); if(!n) return null;
+  return allSkus().find(function(s){ return normDesc(s.getAttribute('data-desc'))===n; }) || null;
+}
+function skuBarcodes(rec){
+  return (rec.getAttribute('data-barcodes')||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
+}
+/* ensure a master-catalogue record exists for a description (+optional code); returns it */
+function ensureMasterSku(desc, explicitSku, barcodes){
+  var rec = explicitSku ? findSkuByCode(explicitSku) : null;
+  if(!rec) rec = findSkuByDesc(desc);
+  if(!rec){
+    rec=document.createElement('div'); rec.className='sku';
+    rec.setAttribute('data-rid', uid());
+    rec.setAttribute('data-sku', explicitSku || autoSkuFromDesc(desc));
+    rec.setAttribute('data-desc', desc||'');
+    rec.setAttribute('data-barcodes', (barcodes||[]).join(','));
+    rec.setAttribute('data-active','true');
+    skuMasterEl.appendChild(rec);
+  } else if(barcodes && barcodes.length){
+    var have=skuBarcodes(rec);
+    barcodes.forEach(function(b){ if(b && have.indexOf(b)<0) have.push(b); });
+    rec.setAttribute('data-barcodes', have.join(','));
+  }
+  return rec;
+}
+async function downloadCSV(filename, rows){
+  var downloadsApi = null;
+  try{ downloadsApi = await claude.use('downloads'); }catch(e){ downloadsApi=null; }
+  if(!downloadsApi){ toast('Downloads are not available in this view.','bad'); return; }
+  try{
+    await downloadsApi.save({filename:filename, data:toCSV(rows)});
+    toast('Saved '+filename);
+  }catch(err){
+    var code = err && err.code;
+    if(code==='declined'){ /* user cancelled, no toast needed */ }
+    else if(code==='extension_not_enabled'){ toast('CSV downloads are not enabled for this view — ask the artifact owner to enable extended file types.','bad'); }
+    else if(code==='too_large'){ toast('That export is too large to download (over 16 MB).','bad'); }
+    else toast('Could not save file: '+((err&&err.message)||code||'unknown error'),'bad');
+  }
+}
+
+/* ---------------------------------------------------------------- bulk (chunked) writer for imports */
+async function bulkWrite(items, chunkSize, fn, onProgress){
+  chunkSize=chunkSize||40;
+  for(var i=0;i<items.length;i+=chunkSize){
+    var chunk=items.slice(i,i+chunkSize);
+    await withSync(function(){ chunk.forEach(fn); }, true);
+    if(onProgress) onProgress(Math.min(i+chunk.length,items.length), items.length);
+  }
+}
+
+/* ================================================================ RENDER ROOT */
+function render(){
+  bindDbRefs();
+  var app=$('#app');
+  if(!currentUser){ app.innerHTML=renderLogin(); wireLogin(); return; }
+  var banner = readOnly ? '<div class="readonly-banner">👁 Read-only view — your scans and edits on this device will not be saved. Ask the artifact owner to grant you edit access.</div>' : '';
+  app.innerHTML =
+    '<div class="app">'+
+      renderSidebar()+
+      '<div class="main">'+ renderMobileBar() + banner + renderTopbar() +
+        '<div class="content" id="viewport">'+renderViewport()+'</div>'+
+      '</div>'+
+    '</div>'+
+    renderMobileNav();
+  wireGlobal();
+  wireViewport();
+}
+
+/* On a phone the sidebar is hidden, so these two carry all navigation. */
+function renderMobileBar(){
+  return ''+
+  '<div class="mobilebar">'+
+    '<div class="brand-mark" style="width:26px;height:26px;font-size:14px;">📦</div>'+
+    '<div style="min-width:0;flex:1;">'+
+      '<div class="brand-name">'+esc(mobileTitle())+'</div>'+
+      '<div class="savestatus small ss-ok" style="font-size:10.5px;">'+esc(saveStatusText())+'</div>'+
+    '</div>'+
+    '<button class="btn btn-sm" id="btnLogoutMobile" style="background:#232a34;border-color:#39424f;color:#fff;">Log out</button>'+
+  '</div>';
+}
+function mobileTitle(){
+  if(view.tab==='clients'){
+    if(view.clientId){ var c=findClient(view.clientId); if(c) return c.getAttribute('data-name'); }
+    return 'Clients';
+  }
+  if(view.tab==='skus') return 'Master SKUs';
+  if(view.tab==='reports') return 'Reports';
+  if(view.tab==='audit') return 'Audit Trail';
+  if(view.tab==='users') return 'Users & Security';
+  if(view.tab==='shipments' && view.shipmentId){
+    var sh=findShipment(view.shipmentId);
+    if(sh) return sh.getAttribute('data-container')||sh.getAttribute('data-client')||'Shipment';
+  }
+  return 'Shipments';
+}
+function renderMobileNav(){
+  function tab(id, ic, label, adminOnly){
+    if(adminOnly && !isAdmin()) return '';
+    return '<button class="mnav'+(view.tab===id?' active':'')+'" data-nav="'+id+'">'+
+      '<span class="ic">'+ic+'</span><span>'+label+'</span></button>';
+  }
+  return '<div class="mobilenav">'+
+    tab('shipments','🚚','Receive')+
+    tab('clients','🏢','Clients')+
+    tab('skus','🏷️','Products')+
+    tab('reports','📊','Reports')+
+    tab('audit','🕓','Audit', true)+
+    tab('users','🔐','Users', true)+
+  '</div>';
+}
+
+function renderSidebar(){
+  function item(tab, ic, label, adminOnly){
+    if(adminOnly && !isAdmin()) return '';
+    var active = view.tab===tab ? ' active' : '';
+    return '<button class="navbtn'+active+'" data-nav="'+tab+'"><span class="ic">'+ic+'</span>'+label+'</button>';
+  }
+  return '' +
+  '<div class="sidebar">'+
+    '<div class="brand"><div class="brand-mark">📦</div><div><div class="brand-name">Dockside</div><div class="brand-sub">Receiving</div></div></div>'+
+    item('shipments','🚚','Shipments')+
+    item('clients','🏢','Clients')+
+    item('skus','🏷️','Master SKUs')+
+    item('reports','📊','Reports &amp; History')+
+    item('audit','🕓','Audit Trail', true)+
+    item('users','🔐','Users &amp; Security', true)+
+    '<div class="sidebar-foot">'+
+      '<div class="row" style="padding:4px 10px 10px;gap:6px;"><span class="sync-dot'+(readOnly?' off':'')+'"></span><span class="savestatus small ss-ok">'+esc(saveStatusText())+'</span></div>'+
+      '<div class="user-chip">'+
+        '<div class="user-avatar">'+esc(initials(currentUser.name))+'</div>'+
+        '<div style="min-width:0;"><div class="user-name">'+esc(currentUser.name)+'</div><div class="user-role">'+esc(currentUser.role)+'</div></div>'+
+        '<button class="btn-ghost btn-sm" id="btnLogout" style="margin-left:auto;" title="Log out">⎋</button>'+
+      '</div>'+
+    '</div>'+
+  '</div>';
+}
+
+function renderTopbar(){
+  var crumb='Shipments';
+  if(view.tab==='clients'){
+    crumb='Clients';
+    if(view.clientId){ var cc=findClient(view.clientId); if(cc) crumb='Clients / '+esc(cc.getAttribute('data-name')); }
+  }
+  if(view.tab==='skus') crumb='Master SKU Database';
+  if(view.tab==='reports') crumb='Reports &amp; Shipment History';
+  if(view.tab==='audit') crumb='Audit Trail';
+  if(view.tab==='users') crumb='Users &amp; Security';
+  if(view.tab==='shipments' && view.shipmentId){
+    var sh=findShipment(view.shipmentId);
+    crumb = sh ? 'Shipments / '+esc(sh.getAttribute('data-container')||'(no container #)') : 'Shipments';
+  }
+  return '<div class="topbar"><div class="row" style="font-size:13px;font-weight:600;color:var(--slate);">'+crumb+'</div></div>';
+}
+
+function renderViewport(){
+  if(view.tab==='clients') return renderClientsView();
+  if(view.tab==='skus') return renderSkuMasterView();
+  if(view.tab==='reports') return renderReportsView();
+  if(view.tab==='audit') return isAdmin()? renderAuditView() : renderNoAccess();
+  if(view.tab==='users') return isAdmin()? renderUsersView() : renderNoAccess();
+  if(view.tab==='shipments' && view.shipmentId){
+    var sh=findShipment(view.shipmentId);
+    if(!sh){ view.shipmentId=null; return renderShipmentsList(); }
+    return renderShipmentDetail(sh);
+  }
+  return renderShipmentsList();
+}
+function renderNoAccess(){ return '<div class="empty"><div class="ic">🔒</div>Administrator access required.</div>'; }
+
+function wireGlobal(){
+  // covers both the desktop sidebar and the mobile bottom bar
+  $$('button[data-nav]').forEach(function(b){ b.addEventListener('click', function(){ goto(b.getAttribute('data-nav')); }); });
+  var lo=$('#btnLogout'); if(lo) lo.addEventListener('click', logout);
+  var lom=$('#btnLogoutMobile'); if(lom) lom.addEventListener('click', logout);
+}
+
+/* ================================================================ SHIPMENTS LIST */
+function renderShipmentsList(){
+  var ships=allShipments().slice().sort(function(a,b){ return (b.getAttribute('data-createdat')||'').localeCompare(a.getAttribute('data-createdat')||''); });
+  var open=ships.filter(function(s){return s.getAttribute('data-status')!=='Completed';});
+  var done=ships.filter(function(s){return s.getAttribute('data-status')==='Completed';});
+  function row(s){
+    var tot=shipmentTotals(s);
+    return '<tr class="clickrow" data-open-ship="'+esc(s.getAttribute('data-rid'))+'" style="cursor:pointer;">'+
+      '<td><strong>'+esc(s.getAttribute('data-client')||'—')+'</strong></td>'+
+      '<td class="mono">'+esc(s.getAttribute('data-container')||'—')+'</td>'+
+      '<td class="mono">'+esc(s.getAttribute('data-po')||'—')+'</td>'+
+      '<td>'+fmtDate(s.getAttribute('data-date'))+'</td>'+
+      '<td><span class="pill pill-'+s.getAttribute('data-status').toLowerCase()+'">'+esc(s.getAttribute('data-status'))+'</span></td>'+
+      '<td class="tab-num">'+tot.scanTot+' / '+tot.expTot+'</td>'+
+      '<td>'+(s.getAttribute('data-status')!=='Completed'
+        ? (tot.scanTot>tot.expTot?'<span class="small" style="color:var(--warn);font-weight:700;">⚠ over</span>':'<span class="small muted">in progress</span>')
+        : (tot.discrepancy?'<span class="small" style="color:var(--warn);font-weight:700;">⚠ discrepancy</span>':'<span class="small" style="color:var(--ok);">match</span>'))+'</td>'+
+      (isAdmin()?'<td><button class="btn-ghost btn-sm" data-del-ship="'+esc(s.getAttribute('data-rid'))+'" title="Delete shipment">🗑</button></td>':'')+
+    '</tr>';
+  }
+  return '' +
+  '<div class="row" style="margin-bottom:4px;"><div><h1 class="section-title">Shipments</h1><p class="section-sub">Create and receive inbound containers.</p></div><div class="spacer"></div><button class="btn btn-primary" id="btnNewShipment">+ New Shipment</button></div>'+
+  (open.length ? '' :
+    '<div class="card pad empty"><div class="ic">🚚</div>No open shipments. Create one to start receiving.</div>'
+  ) +
+  (open.length ? '<div class="card" style="margin-bottom:22px;"><div class="table-wrap"><table><thead><tr><th>Client</th><th>Container #</th><th>PO / Packing Slip</th><th>Date</th><th>Status</th><th>Scanned</th><th>On track</th>'+(isAdmin()?'<th></th>':'')+'</tr></thead><tbody>'+open.map(row).join('')+'</tbody></table></div></div>' : '')+
+  (done.length ? '<h3 style="margin:0 0 10px;">Completed</h3><div class="card"><div class="table-wrap"><table><thead><tr><th>Client</th><th>Container #</th><th>PO / Packing Slip</th><th>Date</th><th>Status</th><th>Scanned</th><th>On track</th>'+(isAdmin()?'<th></th>':'')+'</tr></thead><tbody>'+done.map(row).join('')+'</tbody></table></div></div>' : '');
+}
+
+function renderNewShipmentModal(){
+  var skuOptionsCount = allSkus().length;
+  return '' +
+  '<div class="modal-back" id="newShipModalBack"><div class="modal">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">New Shipment</h3><button class="btn-ghost" id="closeNewShip">✕</button></div>'+
+    '<div class="modal-body">'+
+      '<div class="grid grid-2">'+
+        '<div class="field"><label>Client <span style="color:var(--bad);">*</span></label>'+
+          '<input id="nsClient" list="clientDatalist" placeholder="Pick or type a new client" required autocomplete="off">'+
+          '<datalist id="clientDatalist">'+allClients().filter(function(c){return c.getAttribute('data-active')!=='false';})
+            .map(function(c){return '<option value="'+esc(c.getAttribute('data-name'))+'">';}).join('')+'</datalist>'+
+        '</div>'+
+        '<div class="field"><label>Container #</label><input id="nsContainer" placeholder="e.g. MSCU1234567"></div>'+
+        '<div class="field"><label>Packing Slip / PO #</label><input id="nsPO" placeholder="PO-00123"></div>'+
+        '<div class="field"><label>Date</label><input id="nsDate" type="date" value="'+todayStr()+'"></div>'+
+        '<div class="field"><label>Supplier</label><input id="nsSupplier" placeholder="Optional"></div>'+
+        '<div class="field"><label>Notes</label><input id="nsNotes" placeholder="Optional"></div>'+
+      '</div>'+
+      '<hr class="sep">'+
+      '<div class="field"><label>Import packing slip (Excel or CSV)</label>'+
+        '<input type="file" id="nsFile" accept=".xlsx,.csv,text/csv">'+
+        '<div class="small muted" style="margin-top:6px;">.xlsx or .csv. Only a <span class="kbd">Description</span> and a <span class="kbd">Qty</span> column are required — SKU and barcode are optional. You\'ll confirm which columns to use after picking the file.</div>'+
+      '</div>'+
+      '<div id="nsMapper"></div>'+
+      '<div id="nsPreview"></div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelNewShip">Cancel</button><button class="btn btn-primary" id="saveNewShip">Create Shipment</button></div>'+
+  '</div></div>';
+}
+
+var pendingImportLines = null; // parsed packing-slip rows staged before shipment creation
+var importState = {rows:null, headerIdx:0, desc:-1, qty:-1, sku:-1, barcode:-1};
+
+/* best guess at which column is which; the operator confirms it in the mapper UI */
+function autoMapImportColumns(){
+  var rows=importState.rows, hi=importState.headerIdx;
+  var head=rows[hi]||[];
+  var width=widestRowLength(rows);
+  importState.desc = findColLoose(head,['description','desc','product','item']);
+  if(importState.desc<0){
+    // fall back to the widest text column
+    var bestLen=0, bestIdx=-1;
+    for(var c=0;c<width;c++){
+      if(looksNumericColumn(rows,c,hi)) continue;
+      var total=0,n=0;
+      for(var r=hi+1;r<rows.length;r++){ var v=String((rows[r]||[])[c]||'').trim(); if(v){ total+=v.length; n++; } }
+      var avg=n?total/n:0;
+      if(avg>bestLen){ bestLen=avg; bestIdx=c; }
+    }
+    importState.desc=bestIdx;
+  }
+  importState.sku = findColLoose(head,['sku','itemcode','itemno','partno','code']);
+  importState.barcode = findColLoose(head,['barcode','upc','ean','gtin']);
+  // Quantity is the trickiest column to guess: a slip may carry a category subtotal, a
+  // units-per-case figure and a pallet count alongside the actual number of cases.
+  var cands=[];
+  var nRows=dataRowCount(rows,hi);
+  for(var c2=0;c2<width;c2++){
+    if(c2===importState.desc||c2===importState.sku||c2===importState.barcode) continue;
+    if(!looksNumericColumn(rows,c2,hi)) continue;
+    var headText=String(head[c2]||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    if(/pallet|extra|price|cost|weight|lbs|kg/.test(headText)) continue;
+    var score=0;
+    if(/case/.test(headText)) score+=10;
+    if(/qty|quantity|count|received/.test(headText)) score+=4;
+    if(/unit|piece|pcs|each|percase/.test(headText)) score-=12;
+    if(looksLikePackSize(rows,c2,hi)) score-=10;
+    var fillRatio=columnFillCount(rows,c2,hi)/nRows;
+    score+=fillRatio*6;
+    if(fillRatio<0.95) score-=4; // a line-item quantity has a value on every line
+    cands.push({idx:c2, score:score, fillRatio:fillRatio});
+  }
+  // drop any column that is a per-category subtotal of another candidate
+  cands.forEach(function(a){
+    cands.forEach(function(b){
+      if(a===b) return;
+      if(b.fillRatio>=a.fillRatio && isSubtotalColumn(rows,a.idx,b.idx,hi)) a.score-=25;
+    });
+  });
+  // A per-line quantity has a value on EVERY line. If some candidate is complete, any
+  // gappy column is a group subtotal or a stray note — never the line quantity, however
+  // promising its heading looks.
+  var hasComplete = cands.some(function(c){ return c.fillRatio>=0.95; });
+  if(hasComplete) cands.forEach(function(c){ if(c.fillRatio<0.95) c.score-=30; });
+  cands.sort(function(x,y){ return y.score-x.score; });
+  importState.qty = cands.length? cands[0].idx : -1;
+}
+
+/* turn the current mapping into staged shipment lines */
+function buildImportLines(){
+  var rows=importState.rows, hi=importState.headerIdx;
+  var lines=[];
+  if(!rows || importState.desc<0) return lines;
+  for(var i=hi+1;i<rows.length;i++){
+    var r=rows[i]||[];
+    var desc = String(r[importState.desc]||'').trim();
+    var rawSku = importState.sku>=0? String(r[importState.sku]||'').trim() : '';
+    var rawBarcode = importState.barcode>=0? String(r[importState.barcode]||'').trim() : '';
+    var qty = importState.qty>=0? parseInt(String(r[importState.qty]||'0').replace(/[^0-9.-]/g,''),10)||0 : 0;
+    if(!desc && !rawSku && !rawBarcode) continue;
+    if(!desc && !rawSku) continue;
+    // reuse an existing catalogue entry when we can, so barcodes already learned still apply
+    var match = rawBarcode? findSkuByBarcode(rawBarcode) : null;
+    if(!match && rawSku) match = findSkuByCode(rawSku);
+    if(!match && desc) match = findSkuByDesc(desc);
+    var sku = match ? match.getAttribute('data-sku') : (rawSku || autoSkuFromDesc(desc));
+    var finalDesc = desc || (match? match.getAttribute('data-desc') : sku);
+    var known = !!(match && skuBarcodes(match).length) || !!rawBarcode;
+    lines.push({sku:sku, desc:finalDesc, expected:qty, barcode:rawBarcode, known:known,
+                raw:(r||[]).map(function(c){ return String(c==null?'':c); })});
+  }
+  // merge rows sharing an item (packing slips often split one product across lines)
+  var bySku=Object.create(null), merged=[];
+  lines.forEach(function(l){
+    if(bySku[l.sku]){
+      bySku[l.sku].expected+=l.expected;
+      if(!bySku[l.sku].barcode && l.barcode) bySku[l.sku].barcode=l.barcode;
+    } else { bySku[l.sku]=l; merged.push(l); }
+  });
+  return merged;
+}
+
+function renderImportMapper(){
+  var rows=importState.rows; if(!rows) return;
+  var hi=importState.headerIdx;
+  var head=rows[hi]||[];
+  var width=widestRowLength(rows);
+  function colOptions(sel, allowNone, withSums){
+    var out = allowNone? '<option value="-1"'+(sel<0?' selected':'')+'>— none —</option>' : '';
+    for(var c=0;c<width;c++){
+      var label=colLabel(c, head, rows, hi);
+      // showing each column's total makes a wrong quantity column obvious immediately
+      if(withSums && looksNumericColumn(rows,c,hi)) label+='  →  adds up to '+columnSum(rows,c,hi).toLocaleString();
+      out+='<option value="'+c+'"'+(sel===c?' selected':'')+'>'+esc(label)+'</option>';
+    }
+    return out;
+  }
+  var headerOptions='';
+  for(var r=0;r<Math.min(rows.length,25);r++){
+    var txt=(rows[r]||[]).filter(function(v){return String(v||'').trim();}).slice(0,4).join(' | ');
+    if(txt.length>60) txt=txt.slice(0,60)+'…';
+    headerOptions+='<option value="'+r+'"'+(r===hi?' selected':'')+'>Row '+(r+1)+' — '+esc(txt||'(empty)')+'</option>';
+  }
+  $('#nsMapper').innerHTML=''+
+    '<div class="card pad" style="margin-top:12px;">'+
+      '<div class="row" style="margin-bottom:10px;"><strong style="font-size:13.5px;">Match up the columns</strong><div class="spacer"></div><span class="small muted">'+rows.length+' rows read</span></div>'+
+      '<div class="field" style="margin-bottom:10px;"><label>Which row holds the column headings?</label><select id="mapHeader">'+headerOptions+'</select></div>'+
+      '<div class="grid grid-2" style="gap:10px;">'+
+        '<div class="field"><label>Description <span style="color:var(--bad);">*</span></label><select id="mapDesc">'+colOptions(importState.desc,false)+'</select></div>'+
+        '<div class="field"><label>Quantity — cases received <span style="color:var(--bad);">*</span></label><select id="mapQty">'+colOptions(importState.qty,true,true)+'</select>'+
+          '<div class="small muted" style="margin-top:5px;">Pick the per-line case count, not a category subtotal or a units-per-case figure. The totals shown make it easy to tell them apart.</div></div>'+
+        '<div class="field"><label>SKU / item code (optional)</label><select id="mapSku">'+colOptions(importState.sku,true)+'</select></div>'+
+        '<div class="field"><label>Barcode (optional)</label><select id="mapBarcode">'+colOptions(importState.barcode,true)+'</select></div>'+
+      '</div>'+
+    '</div>';
+  $('#mapHeader').addEventListener('change', function(){
+    importState.headerIdx=parseInt(this.value,10)||0;
+    autoMapImportColumns();
+    renderImportMapper();
+  });
+  $('#mapDesc').addEventListener('change', function(){ importState.desc=parseInt(this.value,10); refreshImportPreview(); });
+  $('#mapQty').addEventListener('change', function(){ importState.qty=parseInt(this.value,10); refreshImportPreview(); });
+  $('#mapSku').addEventListener('change', function(){ importState.sku=parseInt(this.value,10); refreshImportPreview(); });
+  $('#mapBarcode').addEventListener('change', function(){ importState.barcode=parseInt(this.value,10); refreshImportPreview(); });
+  refreshImportPreview();
+}
+
+function refreshImportPreview(){
+  var lines=buildImportLines();
+  pendingImportLines=lines;
+  var el=$('#nsPreview'); if(!el) return;
+  if(!lines.length){
+    el.innerHTML='<div class="small" style="color:var(--warn);margin-top:10px;">No lines found with these columns — try a different heading row or Description column.</div>';
+    return;
+  }
+  var totalQty=lines.reduce(function(a,l){return a+l.expected;},0);
+  var needBarcode=lines.filter(function(l){return !l.known;}).length;
+  var avg = lines.length? totalQty/lines.length : 0;
+  var qtyWarning='';
+  if(importState.qty>=0 && looksLikePackSize(importState.rows, importState.qty, importState.headerIdx)){
+    qtyWarning='<div class="small" style="background:var(--bad-bg);color:var(--bad);padding:10px 12px;border-radius:7px;margin-top:8px;font-weight:600;">'+
+      'That quantity column looks like units per case (the same few large numbers repeating), not the number of cases. Check the column totals in the dropdown above and pick the one that matches the case count on your slip.</div>';
+  } else if(avg>400){
+    qtyWarning='<div class="small" style="background:var(--warn-bg);color:var(--warn);padding:10px 12px;border-radius:7px;margin-top:8px;font-weight:600;">'+
+      'That averages '+Math.round(avg).toLocaleString()+' cases per item — high for a container. If that looks wrong, try a different Quantity column.</div>';
+  }
+  el.innerHTML=
+    '<div class="table-wrap card" style="margin-top:10px;max-height:260px;overflow-y:auto;"><table><thead><tr><th>Item</th><th>Description</th><th>Expected</th><th>Scannable</th></tr></thead><tbody>'+
+    lines.map(function(l){
+      return '<tr><td class="mono small">'+esc(l.sku)+'</td><td>'+esc(l.desc)+'</td><td class="tab-num">'+l.expected+'</td><td>'+
+        (l.known?'<span class="small" style="color:var(--ok);">barcode known</span>':'<span class="small" style="color:var(--warn);">learn on first scan</span>')+'</td></tr>';
+    }).join('')+
+    '</tbody></table></div>'+
+    qtyWarning+
+    '<div class="row" style="margin-top:8px;gap:14px;padding:10px 12px;background:var(--concrete);border-radius:7px;">'+
+      '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Items</div><div class="tab-num" style="font-size:18px;font-weight:800;">'+lines.length+'</div></div>'+
+      '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Total cases expected</div><div class="tab-num" style="font-size:18px;font-weight:800;">'+totalQty.toLocaleString()+'</div></div>'+
+    '</div>'+
+    '<div class="small muted" style="margin-top:6px;">Check that total against your packing slip before creating the shipment.'+
+      (needBarcode? ' '+needBarcode+' item(s) have no barcode yet — scan one box of each and you\'ll be asked to identify it once. After that they\'re recognized automatically, here and on every future container.' : '')+
+    '</div>';
+}
+
+function wireShipmentsList(){
+  $$('[data-open-ship]').forEach(function(el){ el.addEventListener('click', function(){ goto('shipments', el.getAttribute('data-open-ship')); }); });
+  $$('[data-del-ship]').forEach(function(b){ b.addEventListener('click', function(ev){ ev.stopPropagation(); deleteShipment(b.getAttribute('data-del-ship')); }); });
+  var nb=$('#btnNewShipment');
+  if(nb) nb.addEventListener('click', function(){
+    pendingImportLines=null;
+    document.body.insertAdjacentHTML('beforeend', renderNewShipmentModal());
+    wireNewShipmentModal();
+  });
+}
+function closeModal(id){ var m=document.getElementById(id); if(m) m.remove(); }
+function wireNewShipmentModal(){
+  $('#closeNewShip').addEventListener('click', function(){ closeModal('newShipModalBack'); });
+  $('#cancelNewShip').addEventListener('click', function(){ closeModal('newShipModalBack'); });
+  $('#newShipModalBack').addEventListener('click', function(ev){ if(ev.target.id==='newShipModalBack') closeModal('newShipModalBack'); });
+  $('#nsFile').addEventListener('change', async function(ev){
+    var file=ev.target.files[0]; if(!file){ return; }
+    $('#nsMapper').innerHTML='<div class="small muted" style="margin-top:8px;">Reading '+esc(file.name)+'…</div>';
+    $('#nsPreview').innerHTML='';
+    pendingImportLines=null;
+    try{
+      var rows=await parseTabularFile(file);
+      importState.rows=rows;
+      importState.headerIdx=detectHeaderRow(rows);
+      autoMapImportColumns();
+      var sniffed=sniffHeaderFields(rows, importState.headerIdx);
+      if(sniffed.po && !$('#nsPO').value) $('#nsPO').value=sniffed.po;
+      if(sniffed.container && !$('#nsContainer').value) $('#nsContainer').value=sniffed.container;
+      if(sniffed.supplier && !$('#nsSupplier').value) $('#nsSupplier').value=sniffed.supplier;
+      if(sniffed.date) $('#nsDate').value=sniffed.date;
+      renderImportMapper();
+    }catch(e){ toast(e.message||'Could not parse that file.','bad'); $('#nsMapper').innerHTML=''; }
+  });
+  $('#saveNewShip').addEventListener('click', async function(){
+    var client=$('#nsClient').value.trim();
+    if(!client){ toast('Client is required.','bad'); return; }
+    var id=uid();
+    var attrs = {
+      'data-rid':id, 'data-client':client, 'data-container':$('#nsContainer').value.trim(),
+      'data-po':$('#nsPO').value.trim(), 'data-date':$('#nsDate').value||todayStr(),
+      'data-supplier':$('#nsSupplier').value.trim(), 'data-notes':$('#nsNotes').value.trim(),
+      'data-status':'Open', 'data-pallets':'0', 'data-palletnotes':'',
+      'data-createdby':currentUser.name, 'data-createdat':new Date().toISOString(),
+      'data-completedby':'', 'data-completedat':'', 'data-confirmeddiscrepancy':'false'
+    };
+    var btn=$('#saveNewShip'); btn.disabled=true; btn.textContent='Creating…';
+    function build(){
+      var sh=document.createElement('div'); sh.className='shipment';
+      Object.keys(attrs).forEach(function(k){ sh.setAttribute(k, attrs[k]); });
+      var lines=document.createElement('div'); lines.className='lines';
+      var scanlog=document.createElement('div'); scanlog.className='scanlog';
+      sh.appendChild(lines); sh.appendChild(scanlog);
+      shipmentsEl.appendChild(sh);
+      ensureClient(client); // register the client so it gets a history page
+      appendAuditRaw('create-shipment', currentUser.name+' created shipment for '+client+(attrs['data-container']?' / container '+attrs['data-container']:''));
+    }
+    try{
+      await withSync(build, false); // creating one shipment shell is a single direct gesture-driven write
+      var sh = findShipment(id);
+      if(pendingImportLines && pendingImportLines.length){
+        var linesEl = $('.lines', sh);
+        await bulkWrite(pendingImportLines, 40, function(l){
+          // every packing-slip line also lands in the master catalogue, so the product list
+          // builds itself over time — barcodes get attached later, on the first scan
+          ensureMasterSku(l.desc, l.sku, l.barcode? [l.barcode] : []);
+          var line=document.createElement('div'); line.className='line';
+          line.setAttribute('data-sku', l.sku); line.setAttribute('data-desc', l.desc); line.setAttribute('data-expected', String(l.expected));
+          // keep the slip's own row so the export can reproduce its exact columns
+          if(l.raw && l.raw.length) line.setAttribute('data-raw', JSON.stringify(l.raw));
+          linesEl.appendChild(line);
+        });
+        // remember the slip's own headings + letterhead block for the export
+        if(importState.rows){
+          var hdrRow=(importState.rows[importState.headerIdx]||[]).map(function(c){return String(c==null?'':c);});
+          sh.setAttribute('data-srcheaders', JSON.stringify(hdrRow));
+          var meta=[];
+          for(var mr=0; mr<importState.headerIdx; mr++){
+            var rw=(importState.rows[mr]||[]).map(function(c){return String(c==null?'':c);});
+            if(rw.some(function(c){return c.trim();})) meta.push(rw);
+          }
+          sh.setAttribute('data-slipmeta', JSON.stringify(meta));
+        }
+        appendAuditRaw('import-slip', currentUser.name+' imported '+pendingImportLines.length+' packing-slip line(s)');
+      }
+      pendingImportLines=null;
+      importState={rows:null, headerIdx:0, desc:-1, qty:-1, sku:-1, barcode:-1};
+      closeModal('newShipModalBack');
+      toast('Shipment created.');
+      goto('shipments', id);
+    }catch(err){ btn.disabled=false; btn.textContent='Create Shipment'; }
+  });
+}
+
+/* ================================================================ SHIPMENT DETAIL / RECEIVING */
+var scanFlash=null; // {kind,msg} transient, per-device only
+
+/* Barcodes waiting to be identified on THIS device. Not shared: the box is physically in this
+   scanner's hands. One prompt at a time; further unknown scans queue behind it. */
+var pendingEnroll=[];
+var enrollFilter='';
+
+/* has this item ever had a barcode linked? */
+function itemHasBarcode(sku){
+  var rec=findSkuByCode(sku);
+  return !!(rec && skuBarcodes(rec).length);
+}
+
+function renderEnrollPanel(sh){
+  if(!pendingEnroll.length) return '';
+  var code=pendingEnroll[0];
+  var q=normDesc(enrollFilter);
+  var lines=shipmentLines(sh).slice();
+  // items still missing a barcode come first — that's almost always what you just scanned
+  lines.sort(function(a,b){
+    var an=itemHasBarcode(a.getAttribute('data-sku'))?1:0, bn=itemHasBarcode(b.getAttribute('data-sku'))?1:0;
+    if(an!==bn) return an-bn;
+    return (a.getAttribute('data-desc')||'').localeCompare(b.getAttribute('data-desc')||'');
+  });
+  var shown=lines.filter(function(l){
+    if(!q) return true;
+    return normDesc(l.getAttribute('data-desc')+' '+l.getAttribute('data-sku')).indexOf(q)>-1;
+  });
+  var rows=shown.map(function(l){
+    var sku=l.getAttribute('data-sku');
+    var exp=parseInt(l.getAttribute('data-expected')||'0',10);
+    var got=countScans(sh,sku);
+    var has=itemHasBarcode(sku);
+    return '<button class="enroll-opt" data-enroll-sku="'+esc(sku)+'">'+
+        '<div style="min-width:0;flex:1;">'+
+          '<div class="enroll-desc">'+esc(l.getAttribute('data-desc')||sku)+'</div>'+
+          '<div class="enroll-meta">'+got+' of '+exp+' scanned'+(has?' · barcode already linked':'')+'</div>'+
+        '</div>'+
+        (has?'<span class="enroll-tag" style="background:#2a313b;color:#aeb7c2;">has barcode</span>':'<span class="enroll-tag" style="background:#3a2b0a;color:#f0c565;">needs barcode</span>')+
+      '</button>';
+  }).join('');
+  return ''+
+  '<div id="enrollPanel" class="enroll-panel">'+
+    '<div class="row wrap" style="gap:8px;margin-bottom:4px;">'+
+      '<div style="font-weight:800;font-size:14px;color:#f0c565;">New barcode — which item is this?</div>'+
+      '<div class="spacer"></div>'+
+      (pendingEnroll.length>1?'<span class="small" style="color:#aeb7c2;">'+(pendingEnroll.length-1)+' more waiting</span>':'')+
+    '</div>'+
+    '<div class="mono" style="font-size:17px;color:#fff;margin-bottom:8px;">'+esc(code)+'</div>'+
+    '<div class="small" style="color:#aeb7c2;margin-bottom:8px;">Pick the item on the packing slip. This barcode is then saved to your Master SKU list and recognized instantly from now on — on this container and every future one.</div>'+
+    '<input id="enrollFilter" class="enroll-filter" placeholder="Type to narrow the list…" autocomplete="off" value="'+esc(enrollFilter)+'">'+
+    '<div class="enroll-list">'+(rows||'<div class="small" style="color:#aeb7c2;padding:10px;">No packing-slip items match that text.</div>')+'</div>'+
+    '<div class="row" style="margin-top:10px;gap:8px;">'+
+      '<button class="btn btn-sm" id="btnEnrollReject" style="background:#3a1512;border-color:#7d3a30;color:#f3958a;">Not on this packing slip</button>'+
+      '<button class="btn btn-sm" id="btnEnrollSkip" style="background:#232a34;border-color:#39424f;color:#dfe3e8;">Skip for now</button>'+
+    '</div>'+
+  '</div>';
+}
+
+function renderShipmentDetail(sh){
+  var id=sh.getAttribute('data-rid');
+  var status=sh.getAttribute('data-status');
+  var tot=shipmentTotals(sh);
+  var lines=shipmentLines(sh).slice().sort(function(a,b){ return a.getAttribute('data-sku').localeCompare(b.getAttribute('data-sku')); });
+  var scans=shipmentScans(sh).slice().sort(function(a,b){ return b.getAttribute('data-ts').localeCompare(a.getAttribute('data-ts')); });
+  var extras=tot.extras;
+
+  var headerRow = '' +
+  '<div class="d-navrow row wrap" style="margin-bottom:14px;align-items:center;">'+
+    '<button class="btn-ghost" id="backToList">← All shipments</button>'+
+    '<div class="spacer"></div>'+
+    '<span class="pill pill-'+status.toLowerCase()+'">'+status+'</span>'+
+    '<button class="btn btn-sm" id="btnExportShipment">⇩ Export CSV</button>'+
+    (isAdmin()?'<button class="btn btn-sm btn-danger" id="btnDeleteShipment">🗑 Delete</button>':'')+
+  '</div>';
+
+  var infoCard = '' +
+  '<div class="d-info card pad" style="margin-bottom:18px;">'+
+    '<div class="row wrap" style="justify-content:space-between;align-items:flex-start;">'+
+      '<div><h1 class="section-title" style="margin-bottom:4px;">'+esc(sh.getAttribute('data-client')||'Untitled shipment')+'</h1>'+
+      '<div class="muted small">Container <span class="mono">'+esc(sh.getAttribute('data-container')||'—')+'</span> · PO/Slip <span class="mono">'+esc(sh.getAttribute('data-po')||'—')+'</span> · '+fmtDate(sh.getAttribute('data-date'))+(sh.getAttribute('data-supplier')?' · Supplier: '+esc(sh.getAttribute('data-supplier')):'')+'</div></div>'+
+      (status!=='Completed'?'<button class="btn btn-sm" id="btnEditHeader">Edit details</button>':'')+
+    '</div>'+
+    (sh.getAttribute('data-notes')?'<div class="small muted" style="margin-top:8px;">📝 '+esc(sh.getAttribute('data-notes'))+'</div>':'')+
+  '</div>';
+
+  var statsRow = '<div class="d-stats grid grid-4" style="margin-bottom:18px;">'+
+    '<div class="card stat"><div class="n tab-num">'+tot.expTot+'</div><div class="l">Expected</div></div>'+
+    '<div class="card stat"><div class="n tab-num" style="color:var(--accent);">'+tot.scanTot+'</div><div class="l">Scanned</div></div>'+
+    '<div class="card stat"><div class="n tab-num">'+Math.max(tot.expTot-tot.scanTot,0)+'</div><div class="l">Remaining</div></div>'+
+    '<div class="card stat"><div class="n tab-num" style="color:'+(tot.scanTot-tot.expTot===0?'var(--ok)':(tot.scanTot-tot.expTot>0?'var(--warn)':'var(--bad)'))+';">'+(tot.scanTot-tot.expTot>0?'+':'')+(tot.scanTot-tot.expTot)+'</div><div class="l">Difference</div></div>'+
+  '</div>';
+
+  var scanPanel = status==='Completed' ? '' : '' +
+  '<div class="d-scan scan-box" style="margin-bottom:18px;">'+
+    '<div class="row wrap" style="justify-content:space-between;">'+
+      '<div style="font-weight:700;font-size:13px;letter-spacing:.03em;text-transform:uppercase;color:#aeb7c2;">Scan boxes as they come off the truck</div>'+
+      '<div class="row" style="gap:8px;">'+
+        '<button class="btn btn-sm" id="btnToggleCamera" style="background:#232a34;border-color:#39424f;color:#fff;">'+(cameraStream?'📷 Stop camera':'📷 Use phone camera')+'</button>'+
+        '<button class="btn btn-sm" id="btnScannerHelp" style="background:#232a34;border-color:#39424f;color:#fff;">Scanner setup</button>'+
+      '</div>'+
+    '</div>'+
+    '<input id="scanInput" class="mono" style="width:100%;margin-top:10px;" placeholder="Scan or type a barcode, then press Enter…" autocomplete="off"'+(keyboardScanMode?' autofocus':'')+'>'+
+    '<label class="row small chk" style="gap:7px;margin-top:9px;color:#aeb7c2;cursor:pointer;">'+
+      '<input type="checkbox" id="ksmToggle" '+(keyboardScanMode?'checked':'')+' style="width:auto;">'+
+      'Keep this box focused for a USB / Bluetooth scanner'+
+    '</label>'+
+    '<div id="cameraWrap" class="'+(cameraStream?'':'hidden')+'" style="margin-top:12px;">'+
+      '<div style="position:relative;">'+
+        '<video id="cameraVideo" playsinline muted style="width:100%;max-height:300px;border-radius:8px;background:#000;object-fit:cover;display:block;"></video>'+
+        '<div class="aim-guide"><div class="aim-line"></div></div>'+
+      '</div>'+
+      '<div id="cameraMsg" class="small" style="color:#aeb7c2;margin-top:6px;"></div>'+
+    '</div>'+
+    '<div id="scanAlert"></div>'+
+    renderEnrollPanel(sh)+
+    '<div class="small" style="color:#7b8494;margin-top:10px;">Logged in as <strong style="color:#dfe3e8;">'+esc(currentUser.name)+'</strong> · every scan is recorded with your name, time, and result.</div>'+
+  '</div>';
+
+  var lineRows = lines.map(function(l){
+    var sku=l.getAttribute('data-sku'), exp=parseInt(l.getAttribute('data-expected')||'0',10);
+    var got=countScans(sh,sku); var diff=got-exp;
+    var diffClass = diff===0?'diff-zero':(diff>0?'diff-pos':'diff-neg');
+    var has=itemHasBarcode(sku);
+    var editable = status!=='Completed';
+    return '<tr>'+
+      '<td><div>'+esc(l.getAttribute('data-desc')||sku)+'</div>'+
+        '<div class="small mono muted" style="margin-top:2px;">'+esc(sku)+
+        (has?'':' · <span style="color:var(--warn);font-weight:700;">no barcode yet</span>')+'</div></td>'+
+      '<td>'+(editable
+        ? '<input class="tab-num qty-edit" data-exp-sku="'+esc(sku)+'" type="number" min="0" value="'+exp+'">'
+        : '<span class="tab-num">'+exp+'</span>')+'</td>'+
+      '<td class="tab-num" style="font-weight:700;">'+got+'</td>'+
+      '<td class="tab-num">'+Math.max(exp-got,0)+'</td>'+
+      '<td class="tab-num '+diffClass+'">'+(diff>0?'+':'')+diff+'</td>'+
+      (editable && isAdmin() ? '<td><button class="btn-ghost btn-sm" data-del-line="'+esc(sku)+'" title="Remove this line">🗑</button></td>' : '')+
+    '</tr>';
+  }).join('');
+
+  var extraRows = Object.keys(extras).map(function(sku){
+    var srec=findSkuByCode(sku);
+    return '<tr><td><div>'+esc(srec?srec.getAttribute('data-desc'):sku)+'</div><div class="small mono muted" style="margin-top:2px;">'+esc(sku)+'</div></td><td class="tab-num">0</td><td class="tab-num" style="font-weight:700;">'+extras[sku]+'</td><td class="tab-num">0</td><td class="tab-num diff-pos">+'+extras[sku]+'</td>'+
+      (status!=='Completed' && isAdmin() ? '<td><button class="btn btn-sm" data-add-line="'+esc(sku)+'">Add to slip</button></td>' : '<td></td>')+
+    '</tr>';
+  }).join('');
+
+  var pendingLearn = lines.filter(function(l){ return !itemHasBarcode(l.getAttribute('data-sku')); }).length;
+  var learnNote = (status!=='Completed' && pendingLearn) ?
+    '<div class="pad" style="padding-top:0;padding-bottom:12px;"><div class="small" style="background:var(--warn-bg);color:var(--warn);padding:9px 12px;border-radius:7px;font-weight:600;">'+
+      pendingLearn+' item'+(pendingLearn===1?'':'s')+' on this slip '+(pendingLearn===1?'has':'have')+' no barcode yet. Scan one box of each and identify it once — after that it\'s recognized instantly, forever.'+
+    '</div></div>' : '';
+
+  var linesPanel = '<div class="d-lines card" style="margin-bottom:18px;">'+
+    '<div class="pad" style="padding-bottom:0;"><h3 style="margin:0 0 2px;">Expected vs. Scanned</h3><p class="section-sub" style="margin-bottom:12px;">Live across every connected device.</p></div>'+
+    learnNote+
+    '<div class="table-wrap"><table><thead><tr><th>Item</th><th>Expected</th><th>Scanned</th><th>Remaining</th><th>Diff</th>'+((status!=='Completed'&&isAdmin())||Object.keys(extras).length?'<th></th>':'')+'</tr></thead><tbody>'+
+    (lineRows||'<tr><td colspan="5" class="empty">No packing-slip lines yet. Edit shipment details to import a file, or add lines manually.</td></tr>')+
+    (Object.keys(extras).length? '<tr><td colspan="6" style="padding-top:14px;padding-bottom:4px;"><strong class="small" style="color:var(--warn);">⚠ Unexpected items scanned (not on packing slip)</strong></td></tr>'+extraRows : '')+
+    '</tbody></table></div>'+
+    (status!=='Completed'?'<div class="pad" style="padding-top:12px;"><button class="btn btn-sm" id="btnAddLine">+ Add line manually</button></div>':'')+
+  '</div>';
+
+  var palletPanel = '<div class="d-pallet card pad" style="margin-bottom:18px;">'+
+    '<h3 style="margin:0 0 12px;">Palletizing</h3>'+
+    '<div class="row wrap" style="gap:20px;">'+
+      '<div class="field" style="max-width:160px;"><label>Total pallets</label><input id="palletCount" type="number" min="0" class="tab-num" value="'+esc(sh.getAttribute('data-pallets')||'0')+'" '+(status==='Completed'?'disabled':'')+'></div>'+
+      '<div class="field" style="flex:1;min-width:220px;"><label>Pallet #s / notes (optional)</label><input id="palletNotes" value="'+esc(sh.getAttribute('data-palletnotes')||'')+'" placeholder="e.g. PLT-01…PLT-14" '+(status==='Completed'?'disabled':'')+'></div>'+
+      (status!=='Completed'?'<div style="align-self:flex-end;"><button class="btn btn-sm" id="btnSavePallets">Save</button></div>':'')+
+    '</div>'+
+  '</div>';
+
+  var scanFeed = '<div class="d-feed card" style="margin-bottom:18px;">'+
+    '<div class="pad" style="padding-bottom:10px;"><h3 style="margin:0;">Scan feed</h3><p class="section-sub" style="margin:2px 0 0;">Most recent first'+(isAdmin()?'. Admins can void accidental or duplicate scans.':'.')+'</p></div>'+
+    '<div class="table-wrap" style="max-height:320px;overflow-y:auto;"><table><thead><tr><th>Time</th><th>User</th><th>SKU</th><th>Barcode</th><th>Result</th>'+(isAdmin()?'<th></th>':'')+'</tr></thead><tbody>'+
+    (scans.length? scans.map(function(s){
+      var voided = s.getAttribute('data-void')==='true';
+      var res=s.getAttribute('data-result');
+      var resLabel={ok:'OK',exceeds:'Exceeds expected',unexpected:'Not on packing slip',unknown:'Unknown barcode'}[res]||res;
+      var resColor={ok:'var(--ok)',exceeds:'var(--warn)',unexpected:'var(--warn)',unknown:'var(--bad)'}[res]||'var(--slate)';
+      return '<tr style="'+(voided?'opacity:.45;':'')+'">'+
+        '<td class="small">'+fmtDateTime(s.getAttribute('data-ts'))+'</td>'+
+        '<td class="small">'+esc(s.getAttribute('data-user'))+'</td>'+
+        '<td class="mono">'+esc(s.getAttribute('data-sku')||'—')+'</td>'+
+        '<td class="mono small">'+esc(s.getAttribute('data-barcode'))+'</td>'+
+        '<td class="small" style="color:'+resColor+';font-weight:700;">'+(voided?'VOIDED — ':'')+resLabel+'</td>'+
+        (isAdmin()? '<td>'+(voided?'':'<button class="btn-ghost btn-sm" data-void-scan="'+esc(s.getAttribute('data-rid'))+'">Void</button>')+'</td>':'')+
+      '</tr>';
+    }).join('') : '<tr><td colspan="6" class="empty">No scans yet.</td></tr>')+
+    '</tbody></table></div>'+
+  '</div>';
+
+  var completePanel = status==='Completed' ? '' +
+    '<div class="card pad" style="margin-bottom:18px;background:var(--ok-bg);border-color:var(--ok);">'+
+      '<div class="row"><div style="font-size:22px;">✅</div><div><strong>Receiving completed</strong> by '+esc(sh.getAttribute('data-completedby'))+' on '+fmtDateTime(sh.getAttribute('data-completedat'))+'.'+
+      (tot.discrepancy?' Discrepancies were present and confirmed at completion.':' Shipment matched the packing slip exactly.')+'</div></div>'+
+    '</div>' : ''+
+    '<div class="card pad" style="margin-bottom:40px;">'+
+      '<h3 style="margin:0 0 10px;">Complete Receiving</h3>'+
+      '<button class="btn btn-primary" id="btnComplete">Review &amp; Complete Shipment</button>'+
+    '</div>';
+
+  return '<div class="detail-stack">'+
+    headerRow+infoCard+statsRow+scanPanel+linesPanel+palletPanel+scanFeed+
+    '<div class="d-complete">'+completePanel+'</div>'+
+  '</div>';
+}
+
+function wireShipmentDetail(sh){
+  var id=sh.getAttribute('data-rid');
+  $('#backToList').addEventListener('click', function(){ stopCamera(); goto('shipments'); });
+  $('#btnExportShipment').addEventListener('click', function(){ exportShipmentReport(sh); });
+  var delSh=$('#btnDeleteShipment');
+  if(delSh) delSh.addEventListener('click', function(){ deleteShipment(sh.getAttribute('data-rid')); });
+  $$('[data-del-line]').forEach(function(b){ b.addEventListener('click', function(){ deleteLine(sh, b.getAttribute('data-del-line')); }); });
+
+  var scanInput=$('#scanInput');
+  if(scanInput){
+    if(keyboardScanMode) scanInput.focus();
+    scanInput.addEventListener('keydown', function(ev){
+      if(ev.key==='Enter'){
+        ev.preventDefault();
+        var code=scanInput.value.trim();
+        scanInput.value='';
+        if(code) submitScan(sh, code, false);
+      }
+    });
+    if(scanRefocusTimer){ clearInterval(scanRefocusTimer); scanRefocusTimer=null; }
+    if(keyboardScanMode){
+      scanRefocusTimer=setInterval(function(){
+        var input=document.getElementById('scanInput');
+        if(!input){ clearInterval(scanRefocusTimer); scanRefocusTimer=null; return; }
+        var ae=document.activeElement;
+        // NEVER steal focus from something the operator is actually using — otherwise
+        // typing a pallet count, a note or a filter gets cut off mid-word.
+        if(ae && ae!==document.body && ae!==input){
+          var tag=(ae.tagName||'').toUpperCase();
+          if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='BUTTON'||tag==='A'||ae.isContentEditable) return;
+          if(ae.closest && ae.closest('#enrollPanel')) return;
+        }
+        if(ae!==input && !document.querySelector('.modal-back') && !cameraStream){ input.focus(); }
+      }, 700);
+    }
+  }
+  var ksm=$('#ksmToggle');
+  if(ksm) ksm.addEventListener('change', function(){
+    setKeyboardScanMode(this.checked);
+    if(!keyboardScanMode){ var si=document.getElementById('scanInput'); if(si) si.blur(); }
+    rerenderDetail(sh);
+    if(keyboardScanMode){ var si2=document.getElementById('scanInput'); if(si2) si2.focus(); }
+  });
+
+  var enrollPanel=$('#enrollPanel');
+  if(enrollPanel){
+    var code=pendingEnroll[0];
+    $$('[data-enroll-sku]', enrollPanel).forEach(function(b){
+      b.addEventListener('click', function(){ enrollBarcode(sh, code, b.getAttribute('data-enroll-sku')); });
+    });
+    var ef=$('#enrollFilter', enrollPanel);
+    if(ef){
+      ef.addEventListener('input', function(){
+        enrollFilter=this.value;
+        var caret=this.selectionStart;
+        rerenderDetail(sh);
+        var again=document.getElementById('enrollFilter');
+        if(again){ again.focus(); try{ again.setSelectionRange(caret,caret); }catch(e){} }
+      });
+      // a scanner fires keystrokes then Enter; don't let that submit the filter box
+      ef.addEventListener('keydown', function(ev){ if(ev.key==='Enter') ev.preventDefault(); });
+    }
+    var rj=$('#btnEnrollReject', enrollPanel);
+    if(rj) rj.addEventListener('click', function(){ rejectEnroll(sh, code); });
+    var sk=$('#btnEnrollSkip', enrollPanel);
+    if(sk) sk.addEventListener('click', function(){ skipEnroll(sh); });
+  }
+
+  var help=$('#btnScannerHelp');
+  if(help) help.addEventListener('click', openScannerHelp);
+  var camBtn=$('#btnToggleCamera');
+  if(camBtn) camBtn.addEventListener('click', function(){ cameraStream? stopCamera():startCamera(sh); });
+  reattachCameraVideo();
+
+  $$('[data-exp-sku]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var sku=inp.getAttribute('data-exp-sku');
+      var line=$$('.line',sh).find(function(l){ return l.getAttribute('data-sku')===sku; });
+      if(!line) return;
+      var was=line.getAttribute('data-expected');
+      var now=String(Math.max(parseInt(inp.value,10)||0,0));
+      if(was===now) return;
+      line.setAttribute('data-expected', now);
+      appendAuditRaw('edit-expected', currentUser.name+' changed expected qty for '+sku+' from '+was+' to '+now);
+      rerenderDetail(sh);
+      toast('Expected quantity updated.');
+    });
+    // don't let the scanner-refocus timer fight a half-typed number
+    inp.addEventListener('keydown', function(ev){ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
+  });
+  $$('[data-void-scan]').forEach(function(b){ b.addEventListener('click', function(){ voidScan(sh, b.getAttribute('data-void-scan')); }); });
+  $$('[data-add-line]').forEach(function(b){ b.addEventListener('click', function(){ addExtraAsLine(sh, b.getAttribute('data-add-line')); }); });
+
+  var eh=$('#btnEditHeader'); if(eh) eh.addEventListener('click', function(){ openEditHeaderModal(sh); });
+  var al=$('#btnAddLine'); if(al) al.addEventListener('click', function(){ openAddLineModal(sh); });
+  var sp=$('#btnSavePallets'); if(sp) sp.addEventListener('click', function(){ savePallets(sh); });
+  var bc=$('#btnComplete'); if(bc) bc.addEventListener('click', function(){ openCompleteModal(sh); });
+}
+
+function flashAlert(kind, msg){
+  var el=$('#scanAlert'); if(!el) return;
+  var cls = kind==='ok'?'alert-ok':(kind==='warn'?'alert-warn':'alert-bad');
+  var ic = kind==='ok'?'✓':(kind==='warn'?'⚠':'✕');
+  el.innerHTML = '<div class="alert-flash '+cls+'">'+ic+' '+esc(msg)+'</div>';
+  clearTimeout(flashAlert._t);
+  flashAlert._t = setTimeout(function(){ if(el) el.innerHTML=''; }, 3200);
+}
+
+function performScanMutation(sh, code, user){
+  var skuRec = findSkuByBarcode(code);
+  var ts=new Date().toISOString();
+  var result, sku='';
+  if(!skuRec){ result='unknown'; }
+  else{
+    sku = skuRec.getAttribute('data-sku');
+    var line = $$('.line',sh).find(function(l){ return l.getAttribute('data-sku')===sku; });
+    if(!line){ result='unexpected'; }
+    else{
+      var exp=parseInt(line.getAttribute('data-expected')||'0',10);
+      result = (countScans(sh,sku)+1 > exp) ? 'exceeds' : 'ok';
+    }
+  }
+  var scanlog=$('.scanlog',sh);
+  var rec=document.createElement('div'); rec.className='scan';
+  rec.setAttribute('data-rid',uid()); rec.setAttribute('data-sku',sku); rec.setAttribute('data-barcode',code);
+  rec.setAttribute('data-user',user); rec.setAttribute('data-ts',ts); rec.setAttribute('data-result',result); rec.setAttribute('data-void','false');
+  scanlog.appendChild(rec);
+  if(sh.getAttribute('data-status')==='Open') sh.setAttribute('data-status','Receiving');
+  var descPart = skuRec? (' — '+skuRec.getAttribute('data-desc')) : '';
+  appendAuditRaw('scan', user+' scanned "'+code+'"'+(sku?' ('+sku+descPart+')':'')+' → '+result);
+  return {result:result, sku:sku, desc: skuRec?skuRec.getAttribute('data-desc'):''};
+}
+
+function rerenderDetail(sh){
+  var v=$('#viewport'); if(!v) return;
+  var freshSh=findShipment(sh.getAttribute('data-rid'));
+  if(!freshSh) return;
+  v.innerHTML=renderShipmentDetail(freshSh);
+  wireShipmentDetail(freshSh);
+}
+
+async function submitScan(sh, code, viaCamera){
+  var user=currentUser.name;
+
+  // A barcode we've never seen isn't an error — it's a product we haven't learned yet.
+  // Hold it and ask which packing-slip item it belongs to, once.
+  if(!findSkuByBarcode(code)){
+    if(pendingEnroll.indexOf(code)<0){ pendingEnroll.push(code); enrollFilter=''; }
+    beep('warn');
+    rerenderDetail(sh);
+    var inp=document.getElementById('scanInput'); if(inp && !viaCamera && keyboardScanMode) inp.focus();
+    return;
+  }
+
+  var out;
+  try{
+    if(viaCamera){
+      await withSync(function(){ out=performScanMutation(sh, code, user); }, true);
+    } else {
+      out=performScanMutation(sh, code, user);
+    }
+  }catch(e){ return; }
+  if(!out) return;
+  if(out.result==='ok') beep('ok'); else if(out.result==='unknown') beep('bad'); else beep('warn');
+  // render first — the flash lives inside the panel this rebuilds
+  rerenderDetail(sh);
+  if(out.result==='ok') flashAlert('ok', out.desc || out.sku);
+  else if(out.result==='exceeds') flashAlert('warn', 'QUANTITY EXCEEDS EXPECTED — '+(out.desc||out.sku));
+  else if(out.result==='unexpected') flashAlert('warn', 'NOT ON PACKING SLIP — '+(out.desc||out.sku));
+  else flashAlert('bad', 'UNKNOWN BARCODE — "'+code+'"');
+  var input=document.getElementById('scanInput'); if(input && !viaCamera && keyboardScanMode) input.focus();
+}
+
+/* link the held barcode to a packing-slip item, then count the box */
+function enrollBarcode(sh, code, sku){
+  var line=$$('.line',sh).find(function(l){ return l.getAttribute('data-sku')===sku; });
+  var desc=line? line.getAttribute('data-desc') : '';
+  var rec=ensureMasterSku(desc, sku, [code]);
+  appendAuditRaw('enroll-barcode', currentUser.name+' linked barcode "'+code+'" to '+sku+' — '+(rec.getAttribute('data-desc')||''));
+  pendingEnroll.shift(); enrollFilter='';
+  var out=performScanMutation(sh, code, currentUser.name);
+  beep('ok');
+  rerenderDetail(sh);
+  flashAlert('ok', 'Learned: '+(out.desc||sku));
+  var input=document.getElementById('scanInput'); if(input && keyboardScanMode) input.focus();
+}
+/* the operator says this box isn't on the slip — record it as a genuine unknown */
+function rejectEnroll(sh, code){
+  pendingEnroll.shift(); enrollFilter='';
+  performScanMutation(sh, code, currentUser.name); // no barcode match -> logged as 'unknown'
+  beep('bad');
+  rerenderDetail(sh);
+  flashAlert('bad', 'Recorded as an unknown barcode: '+code);
+  var input=document.getElementById('scanInput'); if(input && keyboardScanMode) input.focus();
+}
+function skipEnroll(sh){
+  pendingEnroll.shift(); enrollFilter='';
+  rerenderDetail(sh);
+  var input=document.getElementById('scanInput'); if(input && keyboardScanMode) input.focus();
+}
+
+/* ================================================================ DELETING RECORDS
+   Deletions are permanent and admin-only, always behind a typed/explicit confirmation,
+   and always written to the audit trail before the record disappears. */
+function confirmDelete(opts){
+  // opts: {title, body, warn, confirmWord, onConfirm}
+  var needWord = !!opts.confirmWord;
+  document.body.insertAdjacentHTML('beforeend',''+
+  '<div class="modal-back" id="confirmDelBack"><div class="modal" style="max-width:460px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">'+esc(opts.title)+'</h3><button class="btn-ghost" id="closeConfirmDel">✕</button></div>'+
+    '<div class="modal-body">'+
+      '<p style="margin:0 0 12px;">'+opts.body+'</p>'+
+      (opts.warn? '<div class="small" style="background:var(--bad-bg);color:var(--bad);padding:10px 12px;border-radius:7px;font-weight:600;margin-bottom:12px;">'+opts.warn+'</div>':'')+
+      (needWord? '<div class="field"><label>Type <strong>'+esc(opts.confirmWord)+'</strong> to confirm</label><input id="confirmDelWord" autocomplete="off"></div>':'')+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelConfirmDel">Cancel</button>'+
+      '<button class="btn btn-danger" id="doConfirmDel"'+(needWord?' disabled':'')+'>Delete permanently</button></div>'+
+  '</div></div>');
+  var close=function(){ closeModal('confirmDelBack'); };
+  $('#closeConfirmDel').onclick=close; $('#cancelConfirmDel').onclick=close;
+  if(needWord){
+    $('#confirmDelWord').addEventListener('input', function(){
+      $('#doConfirmDel').disabled = this.value.trim().toUpperCase()!==opts.confirmWord.toUpperCase();
+    });
+  }
+  $('#doConfirmDel').addEventListener('click', function(){ close(); opts.onConfirm(); });
+}
+
+function deleteShipment(id){
+  if(!isAdmin()){ toast('Only an administrator can delete a shipment.','bad'); return; }
+  var sh=findShipment(id); if(!sh) return;
+  var label=(sh.getAttribute('data-container')||sh.getAttribute('data-po')||sh.getAttribute('data-client')||'this shipment');
+  var tot=shipmentTotals(sh);
+  confirmDelete({
+    title:'Delete shipment',
+    body:'<strong>'+esc(label)+'</strong> — '+esc(sh.getAttribute('data-client')||'')+'<br>'+
+         shipmentLines(sh).length+' line(s), '+tot.scanTot+' scanned box(es).',
+    warn:'This permanently removes the shipment and all of its scans. Learned barcodes stay in your product list. This cannot be undone.',
+    confirmWord:'DELETE',
+    onConfirm:function(){
+      appendAuditRaw('delete-shipment', currentUser.name+' deleted shipment '+label+' ('+(sh.getAttribute('data-client')||'')+') with '+shipmentLines(sh).length+' lines and '+tot.scanTot+' scans');
+      sh.remove();
+      if(view.shipmentId===id){ view.shipmentId=null; saveViewState(); }
+      toast('Shipment deleted.');
+      render();
+    }
+  });
+}
+function deleteClient(id){
+  if(!isAdmin()){ toast('Only an administrator can delete a client.','bad'); return; }
+  var c=findClient(id); if(!c) return;
+  var name=c.getAttribute('data-name');
+  var ships=shipmentsForClient(name);
+  if(ships.length){
+    toast('This client still has '+ships.length+' shipment(s). Delete those first, or mark the client inactive.','bad');
+    return;
+  }
+  confirmDelete({
+    title:'Delete client',
+    body:'Remove <strong>'+esc(name)+'</strong> from the client list?',
+    onConfirm:function(){
+      appendAuditRaw('delete-client', currentUser.name+' deleted client '+name);
+      c.remove();
+      if(view.clientId===id){ view.clientId=null; saveViewState(); }
+      toast('Client deleted.'); render();
+    }
+  });
+}
+function deleteSku(rid){
+  if(!isAdmin()){ toast('Only an administrator can delete a product.','bad'); return; }
+  var rec=$('.sku[data-rid="'+cssEsc(rid)+'"]',skuMasterEl); if(!rec) return;
+  var sku=rec.getAttribute('data-sku'), desc=rec.getAttribute('data-desc');
+  var used=allShipments().some(function(s){
+    return $$('.line',s).some(function(l){ return l.getAttribute('data-sku')===sku; });
+  });
+  confirmDelete({
+    title:'Delete product',
+    body:'<strong>'+esc(desc)+'</strong><br><span class="small mono muted">'+esc(sku)+'</span>',
+    warn: used? 'This product appears on an existing shipment. Deleting it removes its barcode link — those shipments keep their counts, but the item will no longer be recognised when scanned. Consider deactivating it instead.' : 'Its learned barcodes will be forgotten. This cannot be undone.',
+    confirmWord:'DELETE',
+    onConfirm:function(){
+      appendAuditRaw('delete-sku', currentUser.name+' deleted product '+sku+' — '+desc);
+      rec.remove(); toast('Product deleted.'); render();
+    }
+  });
+}
+function deleteEmployee(id){
+  if(!isAdmin()){ toast('Only an administrator can delete a user.','bad'); return; }
+  var e=findEmployee(id); if(!e) return;
+  if(e.getAttribute('data-owner')==='true'){ toast('The owner account cannot be deleted.','bad'); return; }
+  if(currentUser && currentUser.id===id){ toast('You cannot delete the account you are signed in as.','bad'); return; }
+  var name=e.getAttribute('data-name');
+  confirmDelete({
+    title:'Delete user',
+    body:'Remove <strong>'+esc(name)+'</strong>?',
+    warn:'Their past scans stay in the audit trail under their name. Deactivating instead keeps them out of the login list without removing the account.',
+    onConfirm:function(){
+      appendAuditRaw('delete-user', currentUser.name+' deleted user '+name);
+      e.remove(); toast('User deleted.'); render();
+    }
+  });
+}
+function deleteLine(sh, sku){
+  if(!isAdmin()){ toast('Only an administrator can remove a line.','bad'); return; }
+  var line=$$('.line',sh).find(function(l){ return l.getAttribute('data-sku')===sku; });
+  if(!line) return;
+  var scanned=countScans(sh,sku);
+  confirmDelete({
+    title:'Remove line from packing slip',
+    body:'<strong>'+esc(line.getAttribute('data-desc')||sku)+'</strong>',
+    warn: scanned? scanned+' box(es) have already been scanned against this line. Removing it will move them to "not on packing slip".' : '',
+    onConfirm:function(){
+      appendAuditRaw('delete-line', currentUser.name+' removed line '+sku+' from the packing slip');
+      line.remove(); toast('Line removed.'); rerenderDetail(sh);
+    }
+  });
+}
+
+function voidScan(sh, scanId){
+  if(!isAdmin()) return;
+  var rec=$('.scan[data-rid="'+cssEsc(scanId)+'"]',sh);
+  if(!rec || rec.getAttribute('data-void')==='true') return;
+  rec.setAttribute('data-void','true');
+  rec.setAttribute('data-voidby', currentUser.name);
+  rec.setAttribute('data-voidat', new Date().toISOString());
+  appendAuditRaw('correction', currentUser.name+' voided a scan of "'+rec.getAttribute('data-barcode')+'" ('+(rec.getAttribute('data-sku')||'unknown')+')');
+  toast('Scan voided.');
+  render();
+}
+
+function addExtraAsLine(sh, sku){
+  if(!isAdmin()) return;
+  var srec=findSkuByCode(sku);
+  var line=document.createElement('div'); line.className='line';
+  line.setAttribute('data-sku',sku); line.setAttribute('data-desc', srec?srec.getAttribute('data-desc'):''); line.setAttribute('data-expected','0');
+  $('.lines',sh).appendChild(line);
+  appendAuditRaw('add-line', currentUser.name+' added unexpected SKU '+sku+' to the packing slip (expected 0)');
+  toast('Added to packing slip as an extra line.');
+  render();
+}
+
+function savePallets(sh){
+  var count=$('#palletCount').value||'0';
+  var notes=$('#palletNotes').value||'';
+  sh.setAttribute('data-pallets', String(parseInt(count,10)||0));
+  sh.setAttribute('data-palletnotes', notes);
+  appendAuditRaw('pallets', currentUser.name+' set pallet count to '+count);
+  toast('Pallet info saved.');
+  render();
+}
+
+/* ---- manual line / header edit modals ---- */
+function openAddLineModal(sh){
+  document.body.insertAdjacentHTML('beforeend', '' +
+    '<div class="modal-back" id="addLineBack"><div class="modal" style="max-width:420px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">Add line</h3><button class="btn-ghost" id="closeAddLine">✕</button></div>'+
+    '<div class="modal-body col" style="gap:12px;">'+
+      '<div class="field"><label>Description <span style="color:var(--bad);">*</span></label><input id="alDesc" list="skuDatalist" placeholder="Start typing to reuse an existing product"></div>'+
+      '<datalist id="skuDatalist">'+allSkus().map(function(s){return '<option value="'+esc(s.getAttribute('data-desc'))+'">';}).join('')+'</datalist>'+
+      '<div class="field"><label>Expected qty</label><input id="alQty" type="number" min="0" value="0"></div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelAddLine">Cancel</button><button class="btn btn-primary" id="saveAddLine">Add line</button></div>'+
+    '</div></div>');
+  $('#closeAddLine').onclick=$('#cancelAddLine').onclick=function(){ closeModal('addLineBack'); };
+  $('#saveAddLine').addEventListener('click', function(){
+    var desc=$('#alDesc').value.trim(); if(!desc){ toast('Description is required.','bad'); return; }
+    var existing=findSkuByDesc(desc);
+    var sku=existing? existing.getAttribute('data-sku') : autoSkuFromDesc(desc);
+    if($$('.line',sh).some(function(l){ return l.getAttribute('data-sku')===sku; })){
+      toast('That item is already on this packing slip.','bad'); return;
+    }
+    ensureMasterSku(desc, sku, []);
+    var line=document.createElement('div'); line.className='line';
+    line.setAttribute('data-sku',sku); line.setAttribute('data-desc',desc); line.setAttribute('data-expected',String(parseInt($('#alQty').value,10)||0));
+    $('.lines',sh).appendChild(line);
+    appendAuditRaw('add-line', currentUser.name+' manually added line '+sku+' — '+desc);
+    closeModal('addLineBack'); render();
+  });
+}
+function openEditHeaderModal(sh){
+  document.body.insertAdjacentHTML('beforeend', '' +
+    '<div class="modal-back" id="editHeadBack"><div class="modal">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">Edit shipment details</h3><button class="btn-ghost" id="closeEditHead">✕</button></div>'+
+    '<div class="modal-body"><div class="grid grid-2">'+
+      '<div class="field"><label>Client</label><input id="ehClient" list="ehClientList" autocomplete="off" value="'+esc(sh.getAttribute('data-client'))+'">'+
+        '<datalist id="ehClientList">'+allClients().map(function(c){return '<option value="'+esc(c.getAttribute('data-name'))+'">';}).join('')+'</datalist></div>'+
+      '<div class="field"><label>Container #</label><input id="ehContainer" value="'+esc(sh.getAttribute('data-container'))+'"></div>'+
+      '<div class="field"><label>Packing Slip / PO #</label><input id="ehPO" value="'+esc(sh.getAttribute('data-po'))+'"></div>'+
+      '<div class="field"><label>Date</label><input id="ehDate" type="date" value="'+esc(sh.getAttribute('data-date'))+'"></div>'+
+      '<div class="field"><label>Supplier</label><input id="ehSupplier" value="'+esc(sh.getAttribute('data-supplier'))+'"></div>'+
+      '<div class="field"><label>Notes</label><input id="ehNotes" value="'+esc(sh.getAttribute('data-notes'))+'"></div>'+
+    '</div></div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelEditHead">Cancel</button><button class="btn btn-primary" id="saveEditHead">Save</button></div>'+
+    '</div></div>');
+  $('#closeEditHead').onclick=$('#cancelEditHead').onclick=function(){ closeModal('editHeadBack'); };
+  $('#saveEditHead').addEventListener('click', function(){
+    var newClient=$('#ehClient').value.trim();
+    if(newClient) ensureClient(newClient);
+    sh.setAttribute('data-client',newClient);
+    sh.setAttribute('data-container',$('#ehContainer').value.trim());
+    sh.setAttribute('data-po',$('#ehPO').value.trim());
+    sh.setAttribute('data-date',$('#ehDate').value||todayStr());
+    sh.setAttribute('data-supplier',$('#ehSupplier').value.trim());
+    sh.setAttribute('data-notes',$('#ehNotes').value.trim());
+    appendAuditRaw('edit-shipment', currentUser.name+' edited shipment details');
+    closeModal('editHeadBack'); render();
+  });
+}
+
+/* ---- complete receiving ---- */
+function openCompleteModal(sh){
+  var tot=shipmentTotals(sh);
+  var lines=shipmentLines(sh);
+  var rows=lines.map(function(l){
+    var sku=l.getAttribute('data-sku'); var exp=parseInt(l.getAttribute('data-expected')||'0',10); var got=countScans(sh,sku);
+    var status = got===exp?'MATCH':(got<exp?'SHORT':'OVER');
+    return '<tr><td class="mono">'+esc(sku)+'</td><td class="tab-num">'+exp+'</td><td class="tab-num">'+got+'</td><td><span class="pill pill-'+status.toLowerCase()+'">'+status+'</span></td></tr>';
+  }).join('');
+  var extraRows=Object.keys(tot.extras).map(function(sku){ return '<tr><td class="mono">'+esc(sku)+'</td><td class="tab-num">0</td><td class="tab-num">'+tot.extras[sku]+'</td><td><span class="pill pill-over">OVER</span></td></tr>'; }).join('');
+  document.body.insertAdjacentHTML('beforeend', '' +
+    '<div class="modal-back" id="completeBack"><div class="modal">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">Final Reconciliation</h3><button class="btn-ghost" id="closeComplete">✕</button></div>'+
+    '<div class="modal-body">'+
+      '<div class="row" style="margin-bottom:14px;"><div class="stat card" style="flex:1;"><div class="n tab-num">'+tot.expTot+'</div><div class="l">Total expected</div></div><div class="stat card" style="flex:1;"><div class="n tab-num">'+tot.scanTot+'</div><div class="l">Total scanned</div></div><div class="stat card" style="flex:1;"><div class="n" style="font-size:20px;color:'+(tot.discrepancy?'var(--warn)':'var(--ok)')+';">'+(tot.discrepancy?'DISCREPANCY':'MATCH')+'</div><div class="l">Overall</div></div></div>'+
+      '<div class="table-wrap"><table><thead><tr><th>SKU</th><th>Expected</th><th>Scanned</th><th>Result</th></tr></thead><tbody>'+rows+extraRows+'</tbody></table></div>'+
+      (tot.discrepancy? '<div class="row chk" style="margin-top:16px;align-items:flex-start;background:var(--warn-bg);padding:12px 14px;border-radius:8px;"><input type="checkbox" id="confirmDiscrepancy" style="margin-top:3px;"><label for="confirmDiscrepancy" class="small" style="color:var(--warn);font-weight:600;">I confirm the discrepancies above are correct and this shipment should be closed as-is.</label></div>' : '<div class="small muted" style="margin-top:14px;">Scanned quantities match the packing slip exactly.</div>')+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelComplete">Cancel</button><button class="btn btn-primary" id="confirmComplete" '+(tot.discrepancy?'disabled':'')+'>Complete Shipment</button></div>'+
+    '</div></div>');
+  $('#closeComplete').onclick=$('#cancelComplete').onclick=function(){ closeModal('completeBack'); };
+  if(tot.discrepancy){
+    $('#confirmDiscrepancy').addEventListener('change', function(){ $('#confirmComplete').disabled=!this.checked; });
+  }
+  $('#confirmComplete').addEventListener('click', function(){
+    sh.setAttribute('data-status','Completed');
+    sh.setAttribute('data-completedby', currentUser.name);
+    sh.setAttribute('data-completedat', new Date().toISOString());
+    sh.setAttribute('data-confirmeddiscrepancy', tot.discrepancy? 'true':'false');
+    appendAuditRaw('complete-shipment', currentUser.name+' completed the shipment ('+(tot.discrepancy?'with confirmed discrepancies':'exact match')+')');
+    closeModal('completeBack'); stopCamera(); toast('Shipment completed.'); render();
+  });
+}
+
+/* ================================================================ barcode decoding from camera frames
+   Safari (iPhone/iPad) and Firefox have no BarcodeDetector, so relying on it meant camera
+   scanning simply did nothing on most phones. This decodes the common 1D case symbologies
+   ourselves from the video frame: EAN-13 / UPC-A / EAN-8, Code 128, and ITF-14. */
+
+var EAN_L=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+var EAN_G=EAN_L.map(function(s){ return s.split('').reverse().map(function(c){return c==='0'?'1':'0';}).join(''); });
+var EAN_R=EAN_L.map(function(s){ return s.split('').map(function(c){return c==='0'?'1':'0';}).join(''); });
+var EAN_PARITY=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+var C128=('212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 '+
+'122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 '+
+'322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 '+
+'132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 '+
+'332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 '+
+'142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 '+
+'212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 '+
+'211214 211232 233111').split(/\s+/);
+var ITF_PAT=['nnwwn','wnnnw','nwnnw','wwnnn','nnwnw','wnwnn','nwwnn','nnnww','wnnwn','nwnwn'];
+
+/* widths of alternating dark/light runs along one scanline */
+function runsFromLine(gray, w){
+  var mn=255,mx=0,i;
+  for(i=0;i<w;i++){ if(gray[i]<mn)mn=gray[i]; if(gray[i]>mx)mx=gray[i]; }
+  if(mx-mn<45) return null;              // no real contrast: blurry or blank
+  var thr=(mn+mx)/2;
+  var runs=[], cur=gray[0]<thr?1:0, len=1;
+  for(i=1;i<w;i++){
+    var b=gray[i]<thr?1:0;
+    if(b===cur) len++; else { runs.push({dark:cur,len:len}); cur=b; len=1; }
+  }
+  runs.push({dark:cur,len:len});
+  return runs;
+}
+function modulesOf(runs, from, count, mod){
+  var out='';
+  for(var i=0;i<count;i++){
+    var r=runs[from+i]; if(!r) return null;
+    var n=Math.round(r.len/mod);
+    if(n<1||n>4) return null;
+    out+=(r.dark?'1':'0').repeat(n);
+  }
+  return out;
+}
+function eanChecksumOk(d){
+  // weights run 3,1,3,1… leftward from the digit before the check digit
+  var sum=0, n=d.length;
+  for(var i=0;i<n-1;i++){
+    var w=(((n-1-i)%2)===1)?3:1;
+    sum+=parseInt(d[i],10)*w;
+  }
+  return ((10-(sum%10))%10)===parseInt(d[n-1],10);
+}
+function decodeEAN(runs){
+  for(var s=0;s<runs.length-30;s++){
+    if(!runs[s].dark) continue;
+    var g=(runs[s].len+runs[s+1].len+runs[s+2].len)/3;
+    if(g<1) continue;
+    if(Math.abs(runs[s].len-g)>g*0.6||Math.abs(runs[s+1].len-g)>g*0.6||Math.abs(runs[s+2].len-g)>g*0.6) continue;
+    // ---- EAN-13 / UPC-A: 6 digits, middle guard, 6 digits
+    var digits='', parity='', p=s+3, ok=true, k, pat, idx;
+    for(k=0;k<6;k++){
+      pat=modulesOf(runs,p,4,g);
+      if(!pat||pat.length!==7){ ok=false; break; }
+      idx=EAN_L.indexOf(pat);
+      if(idx>=0){ parity+='L'; } else { idx=EAN_G.indexOf(pat); if(idx>=0) parity+='G'; }
+      if(idx<0){ ok=false; break; }
+      digits+=idx; p+=4;
+    }
+    if(ok){
+      var mid=modulesOf(runs,p,5,g);
+      if(mid==='01010'){
+        p+=5;
+        var right='';
+        for(k=0;k<6;k++){
+          pat=modulesOf(runs,p,4,g);
+          if(!pat){ ok=false; break; }
+          idx=EAN_R.indexOf(pat);
+          if(idx<0){ ok=false; break; }
+          right+=idx; p+=4;
+        }
+        if(ok){
+          var first=EAN_PARITY.indexOf(parity);
+          if(first>=0){
+            var full=String(first)+digits+right;
+            if(eanChecksumOk(full)) return full;
+          }
+        }
+      }
+    }
+    // ---- EAN-8: 4 digits, middle guard, 4 digits
+    digits=''; p=s+3; ok=true;
+    for(k=0;k<4;k++){
+      pat=modulesOf(runs,p,4,g);
+      if(!pat){ ok=false; break; }
+      idx=EAN_L.indexOf(pat);
+      if(idx<0){ ok=false; break; }
+      digits+=idx; p+=4;
+    }
+    if(ok && modulesOf(runs,p,5,g)==='01010'){
+      p+=5; var r8='';
+      for(k=0;k<4;k++){
+        pat=modulesOf(runs,p,4,g);
+        if(!pat){ ok=false; break; }
+        idx=EAN_R.indexOf(pat);
+        if(idx<0){ ok=false; break; }
+        r8+=idx; p+=4;
+      }
+      if(ok){
+        var e8=digits+r8;
+        if(e8.length===8 && eanChecksumOk(e8)) return e8;
+      }
+    }
+  }
+  return null;
+}
+function c128Symbol(runs, at, mod){
+  var widths='', i;
+  for(i=0;i<6;i++){
+    var r=runs[at+i]; if(!r) return -1;
+    var n=Math.round(r.len/mod);
+    if(n<1||n>4) return -1;
+    widths+=n;
+  }
+  return C128.indexOf(widths);
+}
+function decodeCode128(runs){
+  for(var s=0;s<runs.length-14;s++){
+    if(!runs[s].dark) continue;
+    var total=0, i, bad=false;
+    for(i=0;i<6;i++){ if(!runs[s+i]){ bad=true; break; } total+=runs[s+i].len; }
+    if(bad||!total) continue;
+    var mod=total/11;
+    if(mod<0.8) continue;
+    var start=c128Symbol(runs,s,mod);
+    if(start!==103&&start!==104&&start!==105) continue;
+
+    // read symbols up to the stop character
+    var vals=[], p=s+6, guard=0, v=-1, sawStop=false;
+    while(guard++<100){
+      v=c128Symbol(runs,p,mod);
+      if(v<0) break;
+      if(v===106){ sawStop=true; break; }
+      vals.push(v); p+=6;
+    }
+    if(!sawStop||vals.length<2) continue;
+
+    // last data symbol is the check character
+    var check=vals.pop();
+    var sum=start;
+    for(i=0;i<vals.length;i++) sum+=vals[i]*(i+1);
+    if((sum%103)!==check) continue;
+
+    var mode = start===103?'A':(start===104?'B':'C');
+    var out='';
+    for(i=0;i<vals.length;i++){
+      v=vals[i];
+      if(mode==='C'){
+        if(v<100) out+=String(v).padStart(2,'0');
+        else if(v===100) mode='B';
+        else if(v===101) mode='A';
+        continue;
+      }
+      if(mode==='B'){
+        if(v<95) out+=String.fromCharCode(32+v);
+        else if(v===99) mode='C';
+        else if(v===101) mode='A';
+        continue;
+      }
+      if(v<64) out+=String.fromCharCode(32+v);
+      else if(v<96) out+=String.fromCharCode(v-64);
+      else if(v===99) mode='C';
+      else if(v===100) mode='B';
+    }
+    if(out) return out;
+  }
+  return null;
+}
+function decodeITF(runs){
+  for(var s=0;s<runs.length-10;s++){
+    if(!runs[s].dark) continue;
+    var nar=(runs[s].len+runs[s+1].len+runs[s+2].len+runs[s+3].len)/4;
+    if(nar<1) continue;
+    var isStart=true;
+    for(var i=0;i<4;i++){ if(Math.abs(runs[s+i].len-nar)>nar*0.5){ isStart=false; break; } }
+    if(!isStart) continue;
+    var digits='', p=s+4, guard=0;
+    while(guard++<20){
+      if(!runs[p]||!runs[p+9]) break;
+      var bars='', spaces='', bad=false;
+      for(var k=0;k<10;k++){
+        var r=runs[p+k]; if(!r){ bad=true; break; }
+        var wide = r.len > nar*1.8;
+        if(k%2===0) bars+=(wide?'w':'n'); else spaces+=(wide?'w':'n');
+      }
+      if(bad) break;
+      var d1=ITF_PAT.indexOf(bars), d2=ITF_PAT.indexOf(spaces);
+      if(d1<0||d2<0) break;
+      digits+=d1; digits+=d2; p+=10;
+      // Stop is wide bar + narrow space + narrow bar — but a digit pair starting with "wnn"
+      // looks identical, so only trust it when the quiet zone (or the image edge) follows.
+      if(runs[p] && runs[p].len>nar*1.8 && runs[p+1] && runs[p+1].len<nar*1.8 &&
+         runs[p+2] && runs[p+2].len<nar*1.8 &&
+         (!runs[p+3] || (!runs[p+3].dark && runs[p+3].len>nar*3))){
+        if(digits.length>=6 && digits.length%2===0) return digits;
+        break;
+      }
+    }
+  }
+  return null;
+}
+/* sample several scanlines; only accept a value two lines agree on, so a misread
+   never silently becomes a counted case */
+function decodeFrame(ctx, w, h){
+  var votes=Object.create(null), i, x;
+  for(i=0;i<13;i++){
+    var y=Math.round(h*(0.25+0.5*(i/12)));
+    if(y<0||y>=h) continue;
+    var data;
+    try{ data=ctx.getImageData(0,y,w,1).data; }catch(e){ return null; }
+    var gray=new Uint8Array(w);
+    for(x=0;x<w;x++) gray[x]=(data[x*4]*0.299+data[x*4+1]*0.587+data[x*4+2]*0.114)|0;
+    var runs=runsFromLine(gray,w);
+    if(!runs||runs.length<12) continue;
+    var rev=runs.slice().reverse();
+    var got=decodeEAN(runs)||decodeEAN(rev)||decodeCode128(runs)||decodeCode128(rev)||decodeITF(runs)||decodeITF(rev);
+    if(got) votes[got]=(votes[got]||0)+1;
+  }
+  for(var code in votes){ if(votes[code]>=2) return code; }
+  return null;
+}
+
+/* ---------------------------------------------------------------- camera scanning */
+var cameraCanvas=null;
+function startCamera(sh){
+  var useNative = ('BarcodeDetector' in window);
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    cameraFail('This browser can\'t open a camera here. Use a USB or Bluetooth scanner, or type the barcode above.');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}}}).then(function(stream){
+    cameraStream=stream;
+    render();
+    reattachCameraVideo();
+    var msg=$('#cameraMsg');
+    if(msg) msg.textContent='Hold the barcode steady, filling the width of the frame.';
+    var detector=null;
+    if(useNative){
+      try{ detector=new window.BarcodeDetector({formats:['code_128','ean_13','ean_8','upc_a','upc_e','code_39','itf']}); }catch(e){ detector=null; }
+    }
+    var lastCode='', lastAt=0, busy=false;
+    function accept(val){
+      var now=Date.now();
+      if(!val || (val===lastCode && now-lastAt<1800)) return;
+      lastCode=val; lastAt=now;
+      var freshSh=findShipment(sh.getAttribute('data-rid'));
+      if(freshSh) submitScan(freshSh, val, true);
+    }
+    function loop(){
+      if(!cameraStream) return;
+      var video=document.getElementById('cameraVideo');
+      if(!video||video.readyState<2||busy){ cameraRAF=requestAnimationFrame(loop); return; }
+      if(detector){
+        busy=true;
+        detector.detect(video).then(function(codes){
+          if(codes&&codes.length) accept(codes[0].rawValue);
+        }).catch(function(){ detector=null; }).then(function(){ busy=false; });
+      } else {
+        // own decoder: downscale the frame and read scanlines from it
+        if(!cameraCanvas) cameraCanvas=document.createElement('canvas');
+        // keep resolution high: the decoder needs roughly 3px per barcode module
+        var vw=video.videoWidth||640, vh=video.videoHeight||480;
+        var cw=Math.min(vw,1600), ch=Math.round(vh*(cw/vw));
+        if(cameraCanvas.width!==cw){ cameraCanvas.width=cw; cameraCanvas.height=ch; }
+        var cctx=cameraCanvas.getContext('2d',{willReadFrequently:true});
+        cctx.drawImage(video,0,0,cw,ch);
+        var val=decodeFrame(cctx,cw,ch);
+        if(val) accept(val);
+      }
+      cameraRAF=requestAnimationFrame(loop);
+    }
+    loop();
+  }).catch(function(err){
+    var name=err&&err.name||'';
+    if(name==='NotAllowedError'){
+      cameraFail('Camera blocked. This app runs inside a secure frame that is not granted camera access, so the browser refuses it before this page sees it — changing your phone settings will not help. Use a USB or Bluetooth scanner (tap "Scanner setup"), or type the barcode above.');
+    } else if(name==='NotFoundError'||name==='OverconstrainedError'){
+      cameraFail('No camera found on this device.');
+    } else if(name==='NotReadableError'){
+      cameraFail('The camera is already in use by another app. Close it and try again.');
+    } else {
+      cameraFail('Could not start the camera: '+(err&&err.message||name||'unknown error'));
+    }
+  });
+}
+function openScannerHelp(){
+  document.body.insertAdjacentHTML('beforeend',''+
+  '<div class="modal-back" id="scannerHelpBack"><div class="modal">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">Connecting a barcode scanner</h3><button class="btn-ghost" id="closeScannerHelp">✕</button></div>'+
+    '<div class="modal-body">'+
+      '<p style="margin:0 0 14px;">Barcode scanners work like a keyboard: they type the barcode and press Enter. There is nothing to install or pair with this app — it just needs the scan box to be the active field.</p>'+
+      '<h4 style="margin:0 0 6px;">USB scanner (computer or tablet with a USB port)</h4>'+
+      '<ol style="margin:0 0 16px;padding-left:20px;line-height:1.7;">'+
+        '<li>Plug the scanner into a USB port. No driver needed.</li>'+
+        '<li>Open the container you are receiving.</li>'+
+        '<li>Tick <strong>Keep this box focused for a USB / Bluetooth scanner</strong> under the scan box.</li>'+
+        '<li>Scan a box. The count moves and it is ready for the next one — no clicking between boxes.</li>'+
+      '</ol>'+
+      '<h4 style="margin:0 0 6px;">Bluetooth scanner (phone or tablet)</h4>'+
+      '<ol style="margin:0 0 16px;padding-left:20px;line-height:1.7;">'+
+        '<li>Put the scanner in <strong>HID</strong> / <strong>keyboard</strong> mode — the manual usually has a barcode you scan to set this. This is the important step: <em>SPP / serial mode will not work.</em></li>'+
+        '<li>Pair it in your phone or tablet\'s Bluetooth settings.</li>'+
+        '<li>Open the container, tick <strong>Keep this box focused…</strong>, and scan.</li>'+
+        '<li>If your on-screen keyboard keeps appearing, most scanners have a "hide keyboard" or "HID keyboard toggle" barcode in the manual.</li>'+
+      '</ol>'+
+      '<h4 style="margin:0 0 6px;">What to buy</h4>'+
+      '<p style="margin:0 0 16px;">Any scanner advertised as <strong>USB HID</strong> or <strong>Bluetooth HID / keyboard wedge</strong> works. For cases of cigars, a 1D laser or linear-imager scanner is enough. A 2D imager also reads damaged and phone-screen barcodes.</p>'+
+      '<h4 style="margin:0 0 6px;">Why the phone camera may be blocked</h4>'+
+      '<p style="margin:0 0 8px;">This app runs inside a secure frame on claude.ai, and that frame is not granted camera permission — so the browser refuses the camera before this page ever sees it. Allowing camera access in your phone settings will not change it, and there is nothing this page can do about it.</p>'+
+      '<p style="margin:0;">A USB or Bluetooth scanner is unaffected, and is faster than a camera for unloading a container anyway. You can also type or paste a barcode into the scan box at any time.</p>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn btn-primary" id="okScannerHelp">Got it</button></div>'+
+  '</div></div>');
+  var close=function(){ closeModal('scannerHelpBack'); };
+  $('#closeScannerHelp').onclick=close;
+  $('#okScannerHelp').onclick=close;
+}
+
+function cameraFail(text){
+  var wrap=$('#cameraWrap');
+  if(wrap){ wrap.classList.remove('hidden'); var m=$('#cameraMsg'); if(m) m.textContent=text; }
+  else toast(text,'bad');
+}
+function stopCamera(){
+  if(cameraRAF) cancelAnimationFrame(cameraRAF); cameraRAF=null;
+  if(cameraStream){ cameraStream.getTracks().forEach(function(t){t.stop();}); cameraStream=null; }
+}
+function reattachCameraVideo(){
+  if(!cameraStream) return;
+  var vid=document.getElementById('cameraVideo');
+  if(vid && vid.srcObject!==cameraStream){ vid.srcObject=cameraStream; vid.play().catch(function(){}); }
+}
+
+/* ================================================================ MASTER SKU DATABASE */
+function renderSkuMasterView(){
+  var q=(window.__skuSearch||'').toLowerCase();
+  var onlyMissing = !!window.__skuOnlyMissing;
+  var all=allSkus();
+  var missingCount=all.filter(function(s){ return !skuBarcodes(s).length; }).length;
+  return '' +
+  '<div class="row" style="margin-bottom:4px;"><div><h1 class="section-title">Master SKU Database</h1><p class="section-sub">'+all.length+' products · shared and synced across every device.</p></div><div class="spacer"></div>'+
+  (isAdmin()? '<label class="btn btn-sm" style="margin-right:8px;">⇪ Import Excel/CSV<input type="file" id="skuImportFile" accept=".xlsx,.csv,text/csv" class="hidden"></label><button class="btn btn-sm" id="btnExportSkus">⇩ Export CSV</button><button class="btn btn-primary" id="btnAddSku" style="margin-left:8px;">+ Add product</button>' : '')+
+  '</div>'+
+  (missingCount? '<div class="card pad" style="margin-bottom:14px;background:var(--warn-bg);border-color:var(--warn);"><div class="small" style="color:var(--warn);font-weight:600;">'+missingCount+' product'+(missingCount===1?'':'s')+' '+(missingCount===1?'has':'have')+' no barcode yet. You don\'t need to type them in — scan a box during receiving and identify it once, and the barcode is saved here automatically.</div></div>' : '')+
+  '<div class="row wrap" style="margin-bottom:14px;gap:10px;">'+
+    '<input id="skuSearch" class="search-input" placeholder="Search by description, code, or barcode…" value="'+esc(window.__skuSearch||'')+'">'+
+    '<label class="row small chk" style="gap:6px;cursor:pointer;"><input type="checkbox" id="skuOnlyMissing" '+(onlyMissing?'checked':'')+' style="width:auto;"> Only products without a barcode</label>'+
+  '</div>'+
+  '<div id="skuResults">'+renderSkuRows()+'</div>'+
+  '<div id="skuImportProgress"></div>';
+}
+function renderSkuRows(){
+  var q=(window.__skuSearch||'').toLowerCase();
+  var onlyMissing = !!window.__skuOnlyMissing;
+  var skus=allSkus().filter(function(s){
+    if(onlyMissing && skuBarcodes(s).length) return false;
+    if(!q) return true;
+    return (s.getAttribute('data-sku')||'').toLowerCase().indexOf(q)>-1 ||
+           (s.getAttribute('data-desc')||'').toLowerCase().indexOf(q)>-1 ||
+           (s.getAttribute('data-barcodes')||'').toLowerCase().indexOf(q)>-1;
+  }).sort(function(a,b){ return (a.getAttribute('data-desc')||'').localeCompare(b.getAttribute('data-desc')||''); });
+  var rows=skus.map(function(s){
+    var active=s.getAttribute('data-active')!=='false';
+    var codes=skuBarcodes(s);
+    return '<tr style="'+(active?'':'opacity:.5;')+'">'+
+      '<td><div>'+esc(s.getAttribute('data-desc'))+'</div><div class="small mono muted" style="margin-top:2px;">'+esc(s.getAttribute('data-sku'))+'</div></td>'+
+      '<td class="mono small">'+(codes.length? esc(codes.join(', ')) : '<span style="color:var(--warn);font-weight:700;">— learns on first scan —</span>')+'</td>'+
+      '<td>'+(active?'<span class="pill pill-match">Active</span>':'<span class="pill" style="background:var(--concrete);color:var(--slate);">Inactive</span>')+'</td>'+
+      '<td class="row" style="gap:4px;">'+(isAdmin()?'<button class="btn-ghost btn-sm" data-edit-sku="'+esc(s.getAttribute('data-rid'))+'">Edit</button><button class="btn-ghost btn-sm" data-toggle-sku="'+esc(s.getAttribute('data-rid'))+'">'+(active?'Deactivate':'Reactivate')+'</button><button class="btn-ghost btn-sm" data-del-sku="'+esc(s.getAttribute('data-rid'))+'" title="Delete product">🗑</button>':'')+'</td>'+
+    '</tr>';
+  }).join('');
+  return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Product</th><th>Barcode(s)</th><th>Status</th><th></th></tr></thead><tbody>'+
+    (rows||'<tr><td colspan="4" class="empty">No products match your search.</td></tr>')+
+    '</tbody></table></div></div>';
+}
+function wireSkuRows(){
+  $$('[data-del-sku]').forEach(function(b){ b.addEventListener('click', function(){ deleteSku(b.getAttribute('data-del-sku')); }); });
+  $$('[data-edit-sku]').forEach(function(b){ b.addEventListener('click', function(){ openSkuModal($('.sku[data-rid="'+cssEsc(b.getAttribute('data-edit-sku'))+'"]',skuMasterEl)); }); });
+  $$('[data-toggle-sku]').forEach(function(b){ b.addEventListener('click', function(){
+    var rec=$('.sku[data-rid="'+cssEsc(b.getAttribute('data-toggle-sku'))+'"]',skuMasterEl);
+    var nowActive = rec.getAttribute('data-active')==='false';
+    rec.setAttribute('data-active', nowActive?'true':'false');
+    appendAuditRaw('sku-status', currentUser.name+' '+(nowActive?'reactivated':'deactivated')+' '+rec.getAttribute('data-desc'));
+    render();
+  }); });
+}
+function wireSkuMasterView(){
+  function refreshSkuRows(){ var box=$('#skuResults'); if(box){ box.innerHTML=renderSkuRows(); wireSkuRows(); } }
+  var s=$('#skuSearch');
+  if(s) s.addEventListener('input', function(){ window.__skuSearch=this.value; refreshSkuRows(); });
+  var om=$('#skuOnlyMissing');
+  if(om) om.addEventListener('change', function(){ window.__skuOnlyMissing=this.checked; refreshSkuRows(); });
+  var addBtn=$('#btnAddSku'); if(addBtn) addBtn.addEventListener('click', function(){ openSkuModal(null); });
+  wireSkuRows();
+  var exp=$('#btnExportSkus'); if(exp) exp.addEventListener('click', function(){
+    var rows=[['SKU','Description','Barcodes','Active']];
+    allSkus().forEach(function(s){ rows.push([s.getAttribute('data-sku'), s.getAttribute('data-desc'), s.getAttribute('data-barcodes'), s.getAttribute('data-active')]); });
+    downloadCSV('master-sku-database.csv', rows);
+  });
+  var imp=$('#skuImportFile'); if(imp) imp.addEventListener('change', function(ev){ importSkuCsv(ev.target.files[0]); ev.target.value=''; });
+}
+async function importSkuCsv(file){
+  if(!file) return;
+  var progressEl0=$('#skuImportProgress'); if(progressEl0) progressEl0.innerHTML='<div class="small muted">Reading '+esc(file.name)+'…</div>';
+  var rows;
+  try{ rows=await parseTabularFile(file); }
+  catch(e){ toast(e.message||'Could not parse that file.','bad'); if(progressEl0) progressEl0.innerHTML=''; return; }
+  var hi=detectHeaderRow(rows);
+  var headers=rows[hi]||[];
+  var skuCol=findColLoose(headers,['sku','itemcode','itemno','partno','code']);
+  var barCol=findColLoose(headers,['barcode','upc','ean','gtin']);
+  var descCol=findColLoose(headers,['description','desc','product','item']);
+  var actCol=findColLoose(headers,['active','status']);
+  if(skuCol<0 && descCol<0){
+    toast('That file needs a Description or SKU column.','bad');
+    if(progressEl0) progressEl0.innerHTML=''; return;
+  }
+  var items=[];
+  for(var i=hi+1;i<rows.length;i++){
+    var r=rows[i]; if(!r.length) continue;
+    var sku=skuCol>=0? String(r[skuCol]||'').trim() : '';
+    var desc=descCol>=0? String(r[descCol]||'').trim() : '';
+    if(!sku && !desc) continue;
+    items.push({
+      sku: sku || autoSkuFromDesc(desc),
+      desc: desc,
+      barcodes: barCol>=0? String(r[barCol]||'').trim().replace(/[;|]/g,',') : '',
+      active: actCol>=0? !/^(false|inactive|no|0)$/i.test(String(r[actCol]||'').trim()) : true
+    });
+  }
+  if(!items.length){ toast('No product rows found in that file.','bad'); if(progressEl0) progressEl0.innerHTML=''; return; }
+  var progressEl=$('#skuImportProgress');
+  await bulkWrite(items, 40, function(it){
+    var existing=findSkuByCode(it.sku) || (it.desc? findSkuByDesc(it.desc) : null);
+    if(existing){
+      if(it.desc) existing.setAttribute('data-desc', it.desc);
+      if(it.barcodes){
+        // keep barcodes already learned by scanning; add any new ones from the file
+        var have=skuBarcodes(existing);
+        it.barcodes.split(',').map(function(x){return x.trim();}).filter(Boolean).forEach(function(b){
+          if(have.indexOf(b)<0) have.push(b);
+        });
+        existing.setAttribute('data-barcodes', have.join(','));
+      }
+      existing.setAttribute('data-active', it.active?'true':'false');
+    } else {
+      var rec=document.createElement('div'); rec.className='sku';
+      rec.setAttribute('data-rid',uid()); rec.setAttribute('data-sku',it.sku); rec.setAttribute('data-desc',it.desc);
+      rec.setAttribute('data-barcodes',it.barcodes); rec.setAttribute('data-active', it.active?'true':'false');
+      skuMasterEl.appendChild(rec);
+    }
+  }, function(done,total){ if(progressEl) progressEl.innerHTML='<div class="small muted">Importing… '+done+' / '+total+'</div>'; });
+  appendAuditRaw('import-skus', currentUser.name+' imported '+items.length+' product row(s)');
+  toast('Imported '+items.length+' product row(s).');
+  render();
+}
+function openSkuModal(rec){
+  var isEdit=!!rec;
+  document.body.insertAdjacentHTML('beforeend','' +
+    '<div class="modal-back" id="skuModalBack"><div class="modal" style="max-width:460px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">'+(isEdit?'Edit product':'Add product')+'</h3><button class="btn-ghost" id="closeSkuModal">✕</button></div>'+
+    '<div class="modal-body col" style="gap:12px;">'+
+      '<div class="field"><label>Description <span style="color:var(--bad);">*</span></label><input id="skuDesc" value="'+(isEdit?esc(rec.getAttribute('data-desc')):'')+'" placeholder="As it reads on the packing slip"></div>'+
+      '<div class="field"><label>Item code</label><input id="skuSku" class="mono" value="'+(isEdit?esc(rec.getAttribute('data-sku')):'')+'" placeholder="Leave blank to generate one"></div>'+
+      '<div class="field"><label>Barcode(s) — comma separated</label><input id="skuBarcodes" class="mono" value="'+(isEdit?esc(rec.getAttribute('data-barcodes')):'')+'" placeholder="Optional — scanning a box fills this in">'+
+        '<div class="small muted" style="margin-top:6px;">You can leave barcodes blank. The first time this product is scanned during receiving you\'ll identify it once, and the barcode is saved here automatically.</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelSkuModal">Cancel</button><button class="btn btn-primary" id="saveSkuModal">'+(isEdit?'Save':'Add product')+'</button></div>'+
+    '</div></div>');
+  $('#closeSkuModal').onclick=$('#cancelSkuModal').onclick=function(){ closeModal('skuModalBack'); };
+  $('#saveSkuModal').addEventListener('click', function(){
+    var desc=$('#skuDesc').value.trim();
+    if(!desc){ toast('Description is required.','bad'); return; }
+    var sku=$('#skuSku').value.trim() || autoSkuFromDesc(desc);
+    var barcodes=$('#skuBarcodes').value.trim();
+    if(isEdit){
+      rec.setAttribute('data-sku',sku); rec.setAttribute('data-desc',desc); rec.setAttribute('data-barcodes',barcodes);
+      appendAuditRaw('edit-sku', currentUser.name+' edited product '+sku+' — '+desc);
+    } else {
+      var clash=findSkuByCode(sku);
+      if(clash){ toast('That item code is already used by another product.','bad'); return; }
+      var el=document.createElement('div'); el.className='sku';
+      el.setAttribute('data-rid',uid()); el.setAttribute('data-sku',sku); el.setAttribute('data-desc',desc);
+      el.setAttribute('data-barcodes',barcodes); el.setAttribute('data-active','true');
+      skuMasterEl.appendChild(el);
+      appendAuditRaw('add-sku', currentUser.name+' added product '+sku+' — '+desc);
+    }
+    closeModal('skuModalBack'); render();
+  });
+}
+
+/* ================================================================ CLIENTS */
+function renderClientsView(){
+  if(view.clientId){
+    var c=findClient(view.clientId);
+    if(c) return renderClientDetail(c);
+    view.clientId=null;
+  }
+  var q=(window.__clientSearch||'').toLowerCase();
+  var list=allClients().filter(function(c){
+    if(!q) return true;
+    return (c.getAttribute('data-name')||'').toLowerCase().indexOf(q)>-1 ||
+           (c.getAttribute('data-contact')||'').toLowerCase().indexOf(q)>-1;
+  }).sort(function(a,b){ return (a.getAttribute('data-name')||'').localeCompare(b.getAttribute('data-name')||''); });
+
+  var rows=list.map(function(c){
+    var name=c.getAttribute('data-name');
+    var st=clientStats(name);
+    var active=c.getAttribute('data-active')!=='false';
+    return '<tr class="clickrow" data-open-client="'+esc(c.getAttribute('data-rid'))+'" style="cursor:pointer;'+(active?'':'opacity:.5;')+'">'+
+      '<td><div style="font-weight:600;">'+esc(name)+'</div>'+
+        (c.getAttribute('data-contact')?'<div class="small muted" style="margin-top:2px;">'+esc(c.getAttribute('data-contact'))+'</div>':'')+'</td>'+
+      '<td class="tab-num">'+st.containers+'</td>'+
+      '<td class="tab-num">'+st.open+'</td>'+
+      '<td class="tab-num">'+st.scanTot.toLocaleString()+'</td>'+
+      '<td>'+(st.discrepancies?'<span class="small" style="color:var(--warn);font-weight:700;">'+st.discrepancies+' with issues</span>':
+        (st.completed?'<span class="small" style="color:var(--ok);">all clean</span>':'<span class="small muted">—</span>'))+'</td>'+
+      '<td class="small">'+(st.last?fmtDate(st.last):'—')+'</td>'+
+    '</tr>';
+  }).join('');
+
+  return ''+
+  '<div class="row" style="margin-bottom:4px;"><div><h1 class="section-title">Clients</h1><p class="section-sub">'+allClients().length+' clients · open any one for its full receiving history.</p></div><div class="spacer"></div>'+
+    (isAdmin()?'<button class="btn btn-primary" id="btnAddClient">+ Add client</button>':'')+
+  '</div>'+
+  '<div class="row" style="margin-bottom:14px;"><input id="clientSearch" class="search-input" placeholder="Search clients…" value="'+esc(window.__clientSearch||'')+'"></div>'+
+  '<div id="clientResults">'+renderClientRows()+'</div>';
+}
+function renderClientRows(){
+  var q=(window.__clientSearch||'').toLowerCase();
+  var list=allClients().filter(function(c){
+    if(!q) return true;
+    return (c.getAttribute('data-name')||'').toLowerCase().indexOf(q)>-1 ||
+           (c.getAttribute('data-contact')||'').toLowerCase().indexOf(q)>-1;
+  }).sort(function(a,b){ return (a.getAttribute('data-name')||'').localeCompare(b.getAttribute('data-name')||''); });
+  var rows=list.map(function(c){
+    var name=c.getAttribute('data-name');
+    var st=clientStats(name);
+    var active=c.getAttribute('data-active')!=='false';
+    return '<tr class="clickrow" data-open-client="'+esc(c.getAttribute('data-rid'))+'" style="cursor:pointer;'+(active?'':'opacity:.5;')+'">'+
+      '<td><div style="font-weight:600;">'+esc(name)+'</div>'+
+        (c.getAttribute('data-contact')?'<div class="small muted" style="margin-top:2px;">'+esc(c.getAttribute('data-contact'))+'</div>':'')+'</td>'+
+      '<td class="tab-num">'+st.containers+'</td>'+
+      '<td class="tab-num">'+st.open+'</td>'+
+      '<td class="tab-num">'+st.scanTot.toLocaleString()+'</td>'+
+      '<td>'+(st.discrepancies?'<span class="small" style="color:var(--warn);font-weight:700;">'+st.discrepancies+' with issues</span>':
+        (st.completed?'<span class="small" style="color:var(--ok);">all clean</span>':'<span class="small muted">—</span>'))+'</td>'+
+      '<td class="small">'+(st.last?fmtDate(st.last):'—')+'</td>'+
+      (isAdmin()?'<td><button class="btn-ghost btn-sm" data-del-client="'+esc(c.getAttribute('data-rid'))+'" title="Delete client">🗑</button></td>':'')+
+    '</tr>';
+  }).join('');
+  return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Client</th><th>Containers</th><th>Open</th><th>Cases received</th><th>History</th><th>Last received</th>'+(isAdmin()?'<th></th>':'')+'</tr></thead><tbody>'+
+    (rows||'<tr><td colspan="6" class="empty">No clients yet. Add one, or create a shipment and the client is registered automatically.</td></tr>')+
+    '</tbody></table></div></div>';
+}
+function wireClientRows(){
+  $$('[data-open-client]').forEach(function(el){
+    el.addEventListener('click', function(){ view.clientId=el.getAttribute('data-open-client'); saveViewState(); render(); });
+  });
+  $$('[data-del-client]').forEach(function(b){ b.addEventListener('click', function(ev){ ev.stopPropagation(); deleteClient(b.getAttribute('data-del-client')); }); });
+}
+
+function renderClientDetail(c){
+  var name=c.getAttribute('data-name');
+  var st=clientStats(name);
+  var ships=shipmentsForClient(name).sort(function(a,b){ return (b.getAttribute('data-date')||'').localeCompare(a.getAttribute('data-date')||''); });
+  var rows=ships.map(function(s){
+    var t=shipmentTotals(s);
+    return '<tr class="clickrow" data-open-ship="'+esc(s.getAttribute('data-rid'))+'" style="cursor:pointer;">'+
+      '<td class="mono">'+esc(s.getAttribute('data-container')||'—')+'</td>'+
+      '<td class="mono">'+esc(s.getAttribute('data-po')||'—')+'</td>'+
+      '<td>'+fmtDate(s.getAttribute('data-date'))+'</td>'+
+      '<td><span class="pill pill-'+s.getAttribute('data-status').toLowerCase()+'">'+esc(s.getAttribute('data-status'))+'</span></td>'+
+      '<td class="tab-num">'+t.scanTot+' / '+t.expTot+'</td>'+
+      '<td class="tab-num">'+esc(s.getAttribute('data-pallets')||'0')+'</td>'+
+      '<td>'+(s.getAttribute('data-status')!=='Completed'
+        ? '<span class="small muted">in progress</span>'
+        : (t.discrepancy?'<span class="small" style="color:var(--warn);font-weight:700;">⚠ discrepancy</span>':'<span class="small" style="color:var(--ok);">match</span>'))+'</td>'+
+    '</tr>';
+  }).join('');
+
+  return ''+
+  '<div class="row" style="margin-bottom:14px;"><button class="btn-ghost" id="backToClients">← All clients</button><div class="spacer"></div>'+
+    (isAdmin()?'<button class="btn btn-sm" id="btnEditClient">Edit client</button>'+
+               '<button class="btn btn-sm btn-danger" id="btnDeleteClient">🗑 Delete</button>':'')+
+  '</div>'+
+  '<div class="card pad" style="margin-bottom:18px;">'+
+    '<h1 class="section-title" style="margin-bottom:4px;">'+esc(name)+'</h1>'+
+    '<div class="muted small">'+
+      (c.getAttribute('data-contact')? esc(c.getAttribute('data-contact')) : 'No contact details on file')+
+      (c.getAttribute('data-active')==='false'?' · <strong style="color:var(--warn);">inactive</strong>':'')+
+    '</div>'+
+    (c.getAttribute('data-notes')?'<div class="small muted" style="margin-top:8px;">📝 '+esc(c.getAttribute('data-notes'))+'</div>':'')+
+  '</div>'+
+  '<div class="grid grid-4" style="margin-bottom:18px;">'+
+    '<div class="card stat"><div class="n tab-num">'+st.containers+'</div><div class="l">Containers</div></div>'+
+    '<div class="card stat"><div class="n tab-num" style="color:var(--accent);">'+st.scanTot.toLocaleString()+'</div><div class="l">Cases received</div></div>'+
+    '<div class="card stat"><div class="n tab-num">'+st.open+'</div><div class="l">Still open</div></div>'+
+    '<div class="card stat"><div class="n tab-num" style="color:'+(st.discrepancies?'var(--warn)':'var(--ok)')+';">'+st.discrepancies+'</div><div class="l">With discrepancies</div></div>'+
+  '</div>'+
+  '<div class="card"><div class="pad" style="padding-bottom:10px;"><h3 style="margin:0;">Receiving history</h3></div>'+
+    '<div class="table-wrap"><table><thead><tr><th>Container #</th><th>PO / Slip #</th><th>Date</th><th>Status</th><th>Scanned</th><th>Pallets</th><th></th></tr></thead><tbody>'+
+    (rows||'<tr><td colspan="7" class="empty">No shipments recorded for this client yet.</td></tr>')+
+    '</tbody></table></div></div>';
+}
+
+function wireClientsView(){
+  if(view.clientId){
+    var back=$('#backToClients'); if(back) back.addEventListener('click', function(){ view.clientId=null; saveViewState(); render(); });
+    $$('[data-open-ship]').forEach(function(el){ el.addEventListener('click', function(){ goto('shipments', el.getAttribute('data-open-ship')); }); });
+    var ec=$('#btnEditClient');
+    if(ec) ec.addEventListener('click', function(){ openClientModal(findClient(view.clientId)); });
+    var dc=$('#btnDeleteClient');
+    if(dc) dc.addEventListener('click', function(){ deleteClient(view.clientId); });
+    return;
+  }
+  var s=$('#clientSearch');
+  if(s) s.addEventListener('input', function(){
+    window.__clientSearch=this.value;
+    var box=$('#clientResults'); if(box){ box.innerHTML=renderClientRows(); wireClientRows(); }
+  });
+  wireClientRows();
+  var ab=$('#btnAddClient'); if(ab) ab.addEventListener('click', function(){ openClientModal(null); });
+}
+
+function openClientModal(rec){
+  var isEdit=!!rec;
+  document.body.insertAdjacentHTML('beforeend',''+
+    '<div class="modal-back" id="clientModalBack"><div class="modal" style="max-width:460px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">'+(isEdit?'Edit client':'Add client')+'</h3><button class="btn-ghost" id="closeClientModal">✕</button></div>'+
+    '<div class="modal-body col" style="gap:12px;">'+
+      '<div class="field"><label>Client name <span style="color:var(--bad);">*</span></label><input id="clName" value="'+(isEdit?esc(rec.getAttribute('data-name')):'')+'" placeholder="e.g. Needmaj Distributors, LLC"></div>'+
+      '<div class="field"><label>Contact (optional)</label><input id="clContact" value="'+(isEdit?esc(rec.getAttribute('data-contact')):'')+'" placeholder="Name, phone, or email"></div>'+
+      '<div class="field"><label>Notes (optional)</label><input id="clNotes" value="'+(isEdit?esc(rec.getAttribute('data-notes')):'')+'"></div>'+
+      (isEdit?'<label class="row small chk" style="gap:7px;cursor:pointer;"><input type="checkbox" id="clActive" '+(rec.getAttribute('data-active')!=='false'?'checked':'')+' style="width:auto;"> Active (uncheck to hide from new shipments)</label>':'')+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelClientModal">Cancel</button><button class="btn btn-primary" id="saveClientModal">'+(isEdit?'Save':'Add client')+'</button></div>'+
+    '</div></div>');
+  $('#closeClientModal').onclick=$('#cancelClientModal').onclick=function(){ closeModal('clientModalBack'); };
+  $('#saveClientModal').addEventListener('click', function(){
+    var name=$('#clName').value.trim();
+    if(!name){ toast('Client name is required.','bad'); return; }
+    var clash=findClientByName(name);
+    if(clash && (!isEdit || clash!==rec)){ toast('A client with that name already exists.','bad'); return; }
+    if(isEdit){
+      var oldName=rec.getAttribute('data-name');
+      rec.setAttribute('data-name', name);
+      rec.setAttribute('data-contact', $('#clContact').value.trim());
+      rec.setAttribute('data-notes', $('#clNotes').value.trim());
+      rec.setAttribute('data-active', $('#clActive').checked?'true':'false');
+      // keep existing shipments pointing at this client
+      if(normDesc(oldName)!==normDesc(name)){
+        shipmentsForClient(oldName).forEach(function(s){ s.setAttribute('data-client', name); });
+      }
+      appendAuditRaw('edit-client', currentUser.name+' updated client '+name);
+    } else {
+      var el=ensureClient(name);
+      el.setAttribute('data-contact', $('#clContact').value.trim());
+      el.setAttribute('data-notes', $('#clNotes').value.trim());
+      appendAuditRaw('add-client', currentUser.name+' added client '+name);
+    }
+    closeModal('clientModalBack'); render();
+  });
+}
+
+/* ================================================================ REPORTS & HISTORY */
+function filteredShipments(){
+  var f = window.__reportFilter || {client:'',container:'',po:'',sku:'',status:'',from:'',to:''};
+  return allShipments().filter(function(s){
+    if(f.client && (s.getAttribute('data-client')||'').toLowerCase().indexOf(f.client.toLowerCase())<0) return false;
+    if(f.container && (s.getAttribute('data-container')||'').toLowerCase().indexOf(f.container.toLowerCase())<0) return false;
+    if(f.po && (s.getAttribute('data-po')||'').toLowerCase().indexOf(f.po.toLowerCase())<0) return false;
+    if(f.status && s.getAttribute('data-status')!==f.status) return false;
+    if(f.from && (s.getAttribute('data-date')||'') < f.from) return false;
+    if(f.to && (s.getAttribute('data-date')||'') > f.to) return false;
+    if(f.sku && !shipmentLines(s).some(function(l){ return (l.getAttribute('data-sku')||'').toLowerCase().indexOf(f.sku.toLowerCase())>-1; })) return false;
+    return true;
+  }).sort(function(a,b){ return (b.getAttribute('data-date')||'').localeCompare(a.getAttribute('data-date')||''); });
+}
+function renderReportsView(){
+  var f = window.__reportFilter || {client:'',container:'',po:'',sku:'',status:'',from:'',to:''};
+  return '' +
+  '<h1 class="section-title">Reports &amp; Shipment History</h1><p class="section-sub">Permanent searchable log of every shipment ever received.</p>'+
+  '<div class="card pad" style="margin-bottom:16px;"><div class="grid grid-6" style="gap:10px;">'+
+    '<div class="field"><label>Client</label><input id="rfClient" list="rfClientList" autocomplete="off" value="'+esc(f.client)+'">'+
+      '<datalist id="rfClientList">'+allClients().map(function(c){return '<option value="'+esc(c.getAttribute('data-name'))+'">';}).join('')+'</datalist></div>'+
+    '<div class="field"><label>Container #</label><input id="rfContainer" value="'+esc(f.container)+'"></div>'+
+    '<div class="field"><label>PO / Slip #</label><input id="rfPO" value="'+esc(f.po)+'"></div>'+
+    '<div class="field"><label>SKU</label><input id="rfSku" class="mono" value="'+esc(f.sku)+'"></div>'+
+    '<div class="field"><label>From</label><input id="rfFrom" type="date" value="'+esc(f.from)+'"></div>'+
+    '<div class="field"><label>To</label><input id="rfTo" type="date" value="'+esc(f.to)+'"></div>'+
+  '</div>'+
+  '<div class="row" style="margin-top:10px;">'+
+    '<div class="field" style="max-width:180px;"><label>Status</label><select id="rfStatus"><option value="">All</option>'+['Open','Receiving','Completed'].map(function(st){return '<option value="'+st+'"'+(f.status===st?' selected':'')+'>'+st+'</option>';}).join('')+'</select></div>'+
+    '<div class="spacer"></div><button class="btn btn-sm" id="btnClearFilters">Clear filters</button>'+
+  '</div></div>'+
+  '<div id="reportResults">'+renderReportRows()+'</div>';
+}
+/* results only — re-rendered on each keystroke WITHOUT touching the filter inputs,
+   so typing is never interrupted */
+function renderReportRows(){
+  var ships=filteredShipments();
+  var rows=ships.map(function(s){
+    var tot=shipmentTotals(s);
+    return '<tr class="clickrow" data-open-report="'+esc(s.getAttribute('data-rid'))+'" style="cursor:pointer;">'+
+      '<td>'+esc(s.getAttribute('data-client')||'—')+'</td><td class="mono">'+esc(s.getAttribute('data-container')||'—')+'</td>'+
+      '<td class="mono">'+esc(s.getAttribute('data-po')||'—')+'</td><td>'+fmtDate(s.getAttribute('data-date'))+'</td>'+
+      '<td><span class="pill pill-'+s.getAttribute('data-status').toLowerCase()+'">'+s.getAttribute('data-status')+'</span></td>'+
+      '<td class="tab-num">'+tot.scanTot+' / '+tot.expTot+'</td>'+
+      '<td>'+(s.getAttribute('data-status')!=='Completed'?'<span class="small muted">—</span>'
+        :(tot.discrepancy?'<span style="color:var(--warn);font-weight:700;" class="small">⚠</span>':'<span class="small" style="color:var(--ok);">✓</span>'))+'</td>'+
+    '</tr>';
+  }).join('');
+  return '<div class="small muted" style="margin-bottom:8px;">'+ships.length+' shipment'+(ships.length===1?'':'s')+' match'+(ships.length===1?'es':'')+' these filters.</div>'+
+    '<div class="card"><div class="table-wrap"><table><thead><tr><th>Client</th><th>Container #</th><th>PO / Slip #</th><th>Date</th><th>Status</th><th>Scanned</th><th></th></tr></thead><tbody>'+
+    (rows||'<tr><td colspan="7" class="empty">No shipments match those filters.</td></tr>')+
+    '</tbody></table></div></div>';
+}
+function wireReportRows(){
+  $$('[data-open-report]').forEach(function(el){ el.addEventListener('click', function(){ goto('shipments', el.getAttribute('data-open-report')); }); });
+}
+function wireReportsView(){
+  function readFilters(){
+    window.__reportFilter={
+      client:$('#rfClient')?$('#rfClient').value:'', container:$('#rfContainer')?$('#rfContainer').value:'',
+      po:$('#rfPO')?$('#rfPO').value:'', sku:$('#rfSku')?$('#rfSku').value:'',
+      status:$('#rfStatus')?$('#rfStatus').value:'', from:$('#rfFrom')?$('#rfFrom').value:'',
+      to:$('#rfTo')?$('#rfTo').value:''
+    };
+    var box=$('#reportResults');
+    if(box){ box.innerHTML=renderReportRows(); wireReportRows(); }
+  }
+  ['rfClient','rfContainer','rfPO','rfSku','rfFrom','rfTo'].forEach(function(id){ var el=$('#'+id); if(el) el.addEventListener('input', readFilters); });
+  var st=$('#rfStatus'); if(st) st.addEventListener('change', readFilters);
+  var cf=$('#btnClearFilters');
+  if(cf) cf.addEventListener('click', function(){
+    window.__reportFilter=null;
+    ['rfClient','rfContainer','rfPO','rfSku','rfFrom','rfTo'].forEach(function(id){ var el=$('#'+id); if(el) el.value=''; });
+    var stt=$('#rfStatus'); if(stt) stt.value='';
+    var box=$('#reportResults'); if(box){ box.innerHTML=renderReportRows(); wireReportRows(); }
+  });
+  wireReportRows();
+}
+async function exportShipmentReport(sh){
+  var tot=shipmentTotals(sh);
+  var rows=[];
+  function J(attr){ try{ return JSON.parse(sh.getAttribute(attr)||'null'); }catch(e){ return null; } }
+  var srcHeaders=J('data-srcheaders');
+
+  // ---------- packing-slip header block, laid out exactly like the slip ----------
+  rows.push([ (sh.getAttribute('data-client')||'').toUpperCase(), '', '', 'PACKING SLIP' ]);
+  rows.push([ 'Ship To:', '', '', 'No:', sh.getAttribute('data-po')||'' ]);
+  rows.push([ 'Bill To:', '', '', 'CONTAINER:', sh.getAttribute('data-container')||'' ]);
+  rows.push([ '', '', '', 'Date:', sh.getAttribute('data-date')||'' ]);
+  rows.push([ '', '', '', 'Customer ID:', '' ]);
+  rows.push([]);
+
+  // ---------- column headings: the slip's own, then the receiving columns ----------
+  var RECV=['Scanned','Difference','Result','Barcode(s)'];
+  var DEFAULT_HEADERS=['Quantity of Master Cases','Description','Units Quantity',
+                       'Number of pallets','Extra','No. of pallets','QTY'];
+  var lines=shipmentLines(sh);
+  var width = srcHeaders ? srcHeaders.length : DEFAULT_HEADERS.length;
+  lines.forEach(function(l){
+    try{ var raw=JSON.parse(l.getAttribute('data-raw')||'null'); if(raw && raw.length>width) width=raw.length; }catch(e){}
+  });
+  var hdr = (srcHeaders && srcHeaders.some(function(h){return String(h||'').trim();}))
+    ? srcHeaders.slice() : DEFAULT_HEADERS.slice();
+  while(hdr.length<width) hdr.push('');
+  rows.push(hdr.concat(RECV));
+
+  // ---------- one row per packing-slip line ----------
+  lines.forEach(function(l){
+    var sku=l.getAttribute('data-sku');
+    var exp=parseInt(l.getAttribute('data-expected')||'0',10);
+    var got=countScans(sh,sku);
+    var mrec=findSkuByCode(sku);
+    var codes=mrec?skuBarcodes(mrec).join(' '):'';
+    var result = got===exp?'MATCH':(got<exp?'SHORT':'OVER');
+    var raw=null;
+    try{ raw=JSON.parse(l.getAttribute('data-raw')||'null'); }catch(e){}
+    var base;
+    if(raw && raw.length){
+      base=raw.slice();
+    } else {
+      base=[exp, l.getAttribute('data-desc')||''];
+    }
+    while(base.length<width) base.push('');
+    rows.push(base.concat([got, got-exp, result, codes]));
+  });
+
+  // ---------- anything scanned that was not on the slip ----------
+  var extraKeys=Object.keys(tot.extras);
+  if(extraKeys.length){
+    rows.push([]);
+    rows.push(['ITEMS SCANNED BUT NOT ON THIS PACKING SLIP']);
+    rows.push(['Description','Item Code','Scanned','Barcode(s)']);
+    extraKeys.forEach(function(sku){
+      var m=findSkuByCode(sku);
+      rows.push([m?m.getAttribute('data-desc'):'(unknown item)', sku, tot.extras[sku], m?skuBarcodes(m).join(' '):'']);
+    });
+  }
+
+  // ---------- receiving summary ----------
+  rows.push([]);
+  rows.push(['TOTAL EXPECTED', tot.expTot]);
+  rows.push(['TOTAL SCANNED', tot.scanTot]);
+  rows.push(['DIFFERENCE', tot.scanTot-tot.expTot]);
+  rows.push(['OVERALL', tot.discrepancy?'DISCREPANCY':'MATCH']);
+  rows.push(['TOTAL PALLETS', sh.getAttribute('data-pallets')||'0']);
+  if(sh.getAttribute('data-palletnotes')) rows.push(['PALLET NUMBERS / NOTES', sh.getAttribute('data-palletnotes')]);
+  rows.push(['STATUS', sh.getAttribute('data-status')||'']);
+  rows.push(['RECEIVED BY', sh.getAttribute('data-completedby')||sh.getAttribute('data-createdby')||'']);
+  rows.push(['COMPLETED AT', sh.getAttribute('data-completedat')||'']);
+  if(sh.getAttribute('data-supplier')) rows.push(['SUPPLIER', sh.getAttribute('data-supplier')]);
+  if(sh.getAttribute('data-notes')) rows.push(['NOTES', sh.getAttribute('data-notes')]);
+
+  var name='packing-slip-'+(sh.getAttribute('data-po')||sh.getAttribute('data-container')||sh.getAttribute('data-rid'))+'.csv';
+  await downloadCSV(name, rows);
+}
+
+/* ================================================================ AUDIT TRAIL */
+function renderAuditView(){
+  var entries=$$('.entry',auditLogEl).slice().sort(function(a,b){ return b.getAttribute('data-ts').localeCompare(a.getAttribute('data-ts')); });
+  var rows=entries.map(function(e){
+    return '<tr><td class="small">'+fmtDateTime(e.getAttribute('data-ts'))+'</td><td class="small">'+esc(e.getAttribute('data-user'))+'</td><td class="small mono">'+esc(e.getAttribute('data-action'))+'</td><td class="small">'+esc(e.getAttribute('data-detail'))+'</td></tr>';
+  }).join('');
+  return '<h1 class="section-title">Audit Trail</h1><p class="section-sub">Every scan, correction, and shipment event, permanently. Not editable by warehouse users.</p>'+
+  '<div class="card"><div class="table-wrap" style="max-height:70vh;overflow-y:auto;"><table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead><tbody>'+
+  (rows||'<tr><td colspan="4" class="empty">No activity recorded yet.</td></tr>')+'</tbody></table></div></div>';
+}
+
+/* ================================================================ USERS & SECURITY */
+function renderUsersView(){
+  var emps=activeRoster().slice().sort(function(a,b){ return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name')); });
+  var rows=emps.map(function(e){
+    var active=e.getAttribute('data-active')!=='false';
+    var owner=e.getAttribute('data-owner')==='true';
+    return '<tr style="'+(active?'':'opacity:.5;')+'">'+
+      '<td>'+esc(e.getAttribute('data-name'))+(owner?' <span class="badge-role">owner</span>':'')+'</td>'+
+      '<td><span class="badge-role">'+esc(e.getAttribute('data-role'))+'</span></td>'+
+      '<td>'+(active?'Active':'Deactivated')+'</td>'+
+      '<td class="row" style="gap:4px;">'+
+        (owner?'':'<button class="btn-ghost btn-sm" data-toggle-role="'+esc(e.getAttribute('data-rid'))+'">Make '+(e.getAttribute('data-role')==='admin'?'employee':'admin')+'</button>'+
+        '<button class="btn-ghost btn-sm" data-toggle-emp="'+esc(e.getAttribute('data-rid'))+'">'+(active?'Deactivate':'Reactivate')+'</button>'+
+        '<button class="btn-ghost btn-sm" data-del-emp="'+esc(e.getAttribute('data-rid'))+'" title="Delete user">🗑</button>')+
+      '</td>'+
+    '</tr>';
+  }).join('');
+  return '' +
+  '<h1 class="section-title">Users &amp; Security</h1><p class="section-sub">Individual employee logins with Administrator / Warehouse Employee permissions.</p>'+
+  '<div class="card pad" style="margin-bottom:18px;">'+
+    '<h3 style="margin:0 0 10px;">Team PIN</h3>'+
+    '<p class="small muted" style="margin:0 0 10px;">Everyone uses this PIN plus their own name to log in and attribute scans. This is a convenience gate, not real security — treat this page like a shared internal tool.</p>'+
+    '<div class="row"><input id="teamPinInput" style="max-width:140px;" value="'+esc(settingsEl.getAttribute('data-teampin'))+'"><button class="btn btn-sm" id="btnSaveTeamPin">Update PIN</button></div>'+
+  '</div>'+
+  '<div class="card pad" style="margin-bottom:12px;"><div class="row"><h3 style="margin:0;flex:1;">Employees</h3><button class="btn btn-primary btn-sm" id="btnAddEmp">+ Add employee</button></div></div>'+
+  '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+function wireUsersView(){
+  $('#btnSaveTeamPin').addEventListener('click', function(){
+    var v=$('#teamPinInput').value.trim(); if(!v){ toast('PIN cannot be empty.','bad'); return; }
+    settingsEl.setAttribute('data-teampin', v);
+    settingsEl.setAttribute('data-seeded', 'false');
+    appendAuditRaw('security', currentUser.name+' updated the team PIN');
+    toast('Team PIN updated.');
+  });
+  $('#btnAddEmp').addEventListener('click', function(){
+    document.body.insertAdjacentHTML('beforeend','' +
+      '<div class="modal-back" id="empModalBack"><div class="modal" style="max-width:400px;">'+
+      '<div class="modal-head"><h3 style="margin:0;flex:1;">Add employee</h3><button class="btn-ghost" id="closeEmpModal">✕</button></div>'+
+      '<div class="modal-body col" style="gap:12px;">'+
+        '<div class="field"><label>Name</label><input id="empName"></div>'+
+        '<div class="field"><label>Role</label><select id="empRole"><option value="employee">Warehouse Employee</option><option value="admin">Administrator</option></select></div>'+
+      '</div>'+
+      '<div class="modal-foot"><button class="btn" id="cancelEmpModal">Cancel</button><button class="btn btn-primary" id="saveEmpModal">Add</button></div>'+
+      '</div></div>');
+    $('#closeEmpModal').onclick=$('#cancelEmpModal').onclick=function(){ closeModal('empModalBack'); };
+    $('#saveEmpModal').addEventListener('click', function(){
+      var name=$('#empName').value.trim(); if(!name){ toast('Name required.','bad'); return; }
+      var el=document.createElement('div'); el.className='employee';
+      el.setAttribute('data-rid',uid()); el.setAttribute('data-name',name); el.setAttribute('data-role',$('#empRole').value);
+      el.setAttribute('data-active','true'); el.setAttribute('data-owner','false');
+      rosterEl.appendChild(el);
+      appendAuditRaw('add-user', currentUser.name+' added employee '+name+' ('+$('#empRole').value+')');
+      closeModal('empModalBack'); render();
+    });
+  });
+  $$('[data-toggle-role]').forEach(function(b){ b.addEventListener('click', function(){
+    var e=findEmployee(b.getAttribute('data-toggle-role'));
+    var newRole = e.getAttribute('data-role')==='admin'?'employee':'admin';
+    e.setAttribute('data-role', newRole);
+    appendAuditRaw('role-change', currentUser.name+' set '+e.getAttribute('data-name')+' to '+newRole);
+    render();
+  }); });
+  $$('[data-del-emp]').forEach(function(b){ b.addEventListener('click', function(){ deleteEmployee(b.getAttribute('data-del-emp')); }); });
+  $$('[data-toggle-emp]').forEach(function(b){ b.addEventListener('click', function(){
+    var e=findEmployee(b.getAttribute('data-toggle-emp'));
+    var nowActive = e.getAttribute('data-active')==='false';
+    e.setAttribute('data-active', nowActive?'true':'false');
+    appendAuditRaw('user-status', currentUser.name+' '+(nowActive?'reactivated':'deactivated')+' '+e.getAttribute('data-name'));
+    render();
+  }); });
+}
+
+/* ================================================================ viewport wiring dispatcher */
+function wireViewport(){
+  if(view.tab==='shipments' && view.shipmentId){
+    var sh=findShipment(view.shipmentId);
+    if(sh) wireShipmentDetail(sh);
+  } else if(view.tab==='shipments'){ wireShipmentsList(); }
+  else if(view.tab==='clients'){ wireClientsView(); }
+  else if(view.tab==='skus'){ wireSkuMasterView(); }
+  else if(view.tab==='reports'){
+    wireReportsView();
+    // export button lives in shipment detail; report row click routes to shipments tab detail which has its own export
+  }
+  else if(view.tab==='users' && isAdmin()){ wireUsersView(); }
+}
+
+/* ================================================================ sync lifecycle */
+function wireSyncEvents(){
+  if(window.__drSyncWired) return; window.__drSyncWired=true;
+  document.addEventListener('claude:edit', function(){ render(); });
+  dbRoot && dbRoot.addEventListener && dbRoot.addEventListener('claude:sync-off', function(){
+    readOnly=true; toast('This view is read-only — changes will not be saved.','bad'); render();
+  });
+  document.addEventListener('claude:sync-lost', function(ev){
+    toast('Some changes could not sync yet and will retry automatically.','bad');
+  });
+}
+
+/* ================================================================ boot */
+async function boot(){
+  bindDbRefs();
+  wireSyncEvents();
+  try{ artifactApi = await claude.use('artifact'); }catch(e){ artifactApi=null; }
+  render();
+}
+boot();
+
+})();
+</script>
