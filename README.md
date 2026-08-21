@@ -25,8 +25,9 @@ permanently and recognised instantly on every future container.
 whole thing or just what the search is showing, and **Export CSV round-trips it back,
 barcodes included**), pallet counts,
 final reconciliation (MATCH / SHORT / OVER) with forced confirmation on discrepancies,
-an append-only audit trail, searchable shipment history, and CSV export that reproduces
-the original packing slip's own layout — its real columns only, with the unit/weight
+an append-only audit trail, searchable shipment history, and two exports — a CSV that
+reproduces the customer's invoice letterhead cell for cell, and a print-ready sheet that
+opens in Excel already formatted — its real columns only, with the unit/weight
 columns and the spreadsheet's trailing empty columns dropped.
 
 ---
@@ -162,6 +163,29 @@ Three bugs shipped from this. All are easy to reintroduce:
   whose meaning depends on the filter, repaint it the same way.
 
 ---
+
+## Exports, and why there is no .xlsx
+
+The `downloads` capability allows `gif png jpg jpeg webp mp4 webm txt json md` plus, when
+extended types are on, `docx pptx epub csv ttf html svg pdf`. **`xlsx` is not on either
+list**, so a published artifact cannot hand the viewer a real Excel workbook. Hence two
+exports:
+
+- **Export CSV** — editable in Excel, which was a hard requirement. `invoiceHeaderRows()`
+  places the letterhead in the customer's own cells: column B the company and the
+  Ship To / Bill To labels, C the addresses, D the right-hand labels, E their values.
+  Blank cells stay blank rather than shifting rows.
+- **Print-ready sheet** — HTML, which Excel opens as a worksheet keeping merged cells,
+  column widths, fonts and colours (including the red `PERMIT #:`). This is the one that
+  prints looking like the invoice. A CSV cannot carry any of that.
+
+The letterhead fields live on the **client** (`data-shipto`, `data-billto`, `data-custid`,
+`data-permit`) — entered once, used by every shipment — while `No:`, `CONTAINER:` and
+`Date:` come from the shipment. `sniffHeaderFields()` reads Customer ID and Permit # out of
+an imported slip's letterhead and fills the client in on first sight.
+
+The letterhead is a text rendering of the wordmark, not the customer's logo file; embedding
+the real logo needs the image as a data URI.
 
 ## How the data is stored
 

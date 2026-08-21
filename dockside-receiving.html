@@ -1160,7 +1160,7 @@ function looseDateToISO(v){
 }
 /* scan the block above the table for "No:", "Container:", "Date:" style label/value pairs */
 function sniffHeaderFields(rows, headerIdx){
-  var out={po:'', container:'', date:'', supplier:''};
+  var out={po:'', container:'', date:'', supplier:'', invno:'', custid:'', permit:''};
   for(var r=0;r<headerIdx;r++){
     var row=rows[r]||[];
     for(var c=0;c<row.length;c++){
@@ -1169,7 +1169,10 @@ function sniffHeaderFields(rows, headerIdx){
       var val='';
       for(var n=c+1;n<Math.min(row.length,c+4);n++){ if(String(row[n]||'').trim()){ val=String(row[n]).trim(); break; } }
       if(!val) continue;
-      if(!out.po && (label==='no'||label==='nos'||label==='pono'||label==='ponumber'||label==='packingslip'||label==='invoice'||label==='invoiceno')) out.po=val;
+      if(!out.invno && (label==='no'||label==='nos'||label==='invoice'||label==='invoiceno')) out.invno=val;
+      else if(!out.po && (label==='pono'||label==='ponumber'||label==='packingslip')) out.po=val;
+      else if(!out.custid && (label==='customerid'||label==='custid'||label==='customerno')) out.custid=val;
+      else if(!out.permit && label.indexOf('permit')>-1) out.permit=val;
       else if(!out.container && label.indexOf('container')>-1) out.container=val;
       else if(!out.date && label==='date') out.date=looseDateToISO(val);
       else if(!out.supplier && (label.indexOf('supplier')>-1||label.indexOf('vendor')>-1)) out.supplier=val;
@@ -1473,6 +1476,7 @@ function renderNewShipmentModal(){
         '</div>'+
         '<div class="field"><label>Container #</label><input id="nsContainer" placeholder="e.g. MSCU1234567"></div>'+
         '<div class="field"><label>Packing Slip / PO #</label><input id="nsPO" placeholder="PO-00123"></div>'+
+        '<div class="field"><label>Invoice No.</label><input id="nsInvNo" placeholder="Shows as \'No:\' on the printed header"></div>'+
         '<div class="field"><label>Date</label><input id="nsDate" type="date" value="'+todayStr()+'"></div>'+
         '<div class="field"><label>Supplier</label><input id="nsSupplier" placeholder="Optional"></div>'+
         '<div class="field"><label>Notes</label><input id="nsNotes" placeholder="Optional"></div>'+
@@ -1738,9 +1742,14 @@ function wireNewShipmentModal(){
       autoMapImportColumns();
       var sniffed=sniffHeaderFields(rows, importState.headerIdx);
       if(sniffed.po && !$('#nsPO').value) $('#nsPO').value=sniffed.po;
+      if(sniffed.invno && $('#nsInvNo') && !$('#nsInvNo').value) $('#nsInvNo').value=sniffed.invno;
+      // Customer ID and Permit # live on the client — carry them across on first sight
+      importState.sniffedClient={custid:sniffed.custid, permit:sniffed.permit};
       if(sniffed.container && !$('#nsContainer').value) $('#nsContainer').value=sniffed.container;
       if(sniffed.supplier && !$('#nsSupplier').value) $('#nsSupplier').value=sniffed.supplier;
-      if(sniffed.date) $('#nsDate').value=sniffed.date;
+      // the date box is pre-filled with today, so "empty" never happens — only let the slip
+      // win when the operator has not deliberately typed a different date
+      if(sniffed.date && $('#nsDate').value===todayStr()) $('#nsDate').value=sniffed.date;
       renderImportMapper();
     }catch(e){ toast(e.message||'Could not parse that file.','bad'); $('#nsMapper').innerHTML=''; }
   });
@@ -1755,6 +1764,7 @@ function wireNewShipmentModal(){
     var attrs = {
       'data-rid':id, 'data-client':client, 'data-container':$('#nsContainer').value.trim(),
       'data-po':$('#nsPO').value.trim(), 'data-date':$('#nsDate').value||todayStr(),
+      'data-invno':($('#nsInvNo')&&$('#nsInvNo').value.trim())||'',
       'data-supplier':$('#nsSupplier').value.trim(), 'data-notes':$('#nsNotes').value.trim(),
       'data-status':'Open', 'data-pallets':'0', 'data-palletnotes':'',
       'data-createdby':currentUser.name, 'data-createdat':new Date().toISOString(),
@@ -1768,7 +1778,10 @@ function wireNewShipmentModal(){
       var scanlog=document.createElement('div'); scanlog.className='scanlog';
       sh.appendChild(lines); sh.appendChild(scanlog);
       shipmentsEl.appendChild(sh);
-      ensureClient(client); // register the client so it gets a history page
+      var clRec=ensureClient(client); // register the client so it gets a history page
+      var sn=importState.sniffedClient||{};
+      if(sn.custid && !(clRec.getAttribute('data-custid')||'').trim()) clRec.setAttribute('data-custid', sn.custid);
+      if(sn.permit && !(clRec.getAttribute('data-permit')||'').trim()) clRec.setAttribute('data-permit', sn.permit);
       appendAuditRaw('create-shipment', currentUser.name+' created shipment for '+client+(attrs['data-container']?' / container '+attrs['data-container']:''));
     }
     try{
@@ -1898,6 +1911,7 @@ function renderShipmentDetail(sh){
     '<div class="spacer"></div>'+
     '<span class="pill pill-'+status.toLowerCase()+'">'+status+'</span>'+
     '<button class="btn btn-sm" id="btnExportShipment">⇩ Export CSV</button>'+
+    '<button class="btn btn-sm" id="btnExportPrintable" title="Opens in Excel already formatted like your invoice">⇩ Print-ready sheet</button>'+
     (isAdmin()?'<button class="btn btn-sm btn-danger" id="btnDeleteShipment">🗑 Delete</button>':'')+
   '</div>';
 
@@ -1967,7 +1981,10 @@ function renderShipmentDetail(sh){
   var extraRows = Object.keys(extras).map(function(sku){
     var srec=findSkuByCode(sku);
     return '<tr><td><div>'+esc(srec?srec.getAttribute('data-desc'):sku)+'</div><div class="small mono muted" style="margin-top:2px;">'+esc(sku)+'</div></td><td class="tab-num">0</td><td class="tab-num" style="font-weight:700;">'+extras[sku]+'</td><td class="tab-num">0</td><td class="tab-num diff-pos">+'+extras[sku]+'</td>'+
-      (status!=='Completed' && isAdmin() ? '<td><button class="btn btn-sm" data-add-line="'+esc(sku)+'">Add to slip</button></td>' : '<td></td>')+
+      (status!=='Completed' && isAdmin()
+        ? '<td class="row" style="gap:4px;"><button class="btn btn-sm" data-add-line="'+esc(sku)+'">Add to slip</button>'+
+          '<button class="btn-ghost btn-sm" data-del-extra="'+esc(sku)+'" title="Delete these scans">🗑</button></td>'
+        : '<td></td>')+
     '</tr>';
   }).join('');
 
@@ -2036,9 +2053,11 @@ function wireShipmentDetail(sh){
   var id=sh.getAttribute('data-rid');
   $('#backToList').addEventListener('click', function(){ stopCamera(); goto('shipments'); });
   $('#btnExportShipment').addEventListener('click', function(){ exportShipmentReport(sh); });
+  var pb=$('#btnExportPrintable'); if(pb) pb.addEventListener('click', function(){ exportShipmentPrintable(sh); });
   var delSh=$('#btnDeleteShipment');
   if(delSh) delSh.addEventListener('click', function(){ deleteShipment(sh.getAttribute('data-rid')); });
   $$('[data-del-line]').forEach(function(b){ b.addEventListener('click', function(){ deleteLine(sh, b.getAttribute('data-del-line')); }); });
+  $$('[data-del-extra]').forEach(function(b){ b.addEventListener('click', function(){ deleteExtraScans(sh, b.getAttribute('data-del-extra')); }); });
 
   var scanInput=$('#scanInput');
   if(scanInput){
@@ -2404,6 +2423,34 @@ function deleteLine(sh, sku){
     onConfirm:function(){
       appendAuditRaw('delete-line', currentUser.name+' removed line '+sku+' from the packing slip');
       line.remove(); toast('Line removed.'); rerenderDetail(sh);
+    }
+  });
+}
+
+/* Delete every scan of an item that was never on the slip — the "scanned it by mistake"
+   case. Scans are append-only, so this voids them: the count drops to zero and the record
+   of what happened stays in the feed and the audit trail. */
+function deleteExtraScans(sh, sku){
+  if(!isAdmin()){ toast('Only an administrator can delete scans.','bad'); return; }
+  var live=$$('.scan',sh).filter(function(s2){
+    return s2.getAttribute('data-void')!=='true' && s2.getAttribute('data-sku')===sku;
+  });
+  if(!live.length){ toast('Nothing to delete.','bad'); return; }
+  var rec=findSkuByCode(sku);
+  confirmDelete({
+    title:'Delete these scans',
+    body:'<strong>'+esc(rec? skuLabel(rec) : sku)+'</strong><br>'+live.length+' scan'+(live.length===1?'':'s')+' will be removed from the count.',
+    warn:'The scans stay in the scan feed and the audit trail marked as voided — nothing is hidden, the boxes just stop counting.',
+    onConfirm:function(){
+      var when=new Date().toISOString();
+      live.forEach(function(s2){
+        s2.setAttribute('data-void','true');
+        s2.setAttribute('data-voidby', currentUser.name);
+        s2.setAttribute('data-voidat', when);
+      });
+      appendAuditRaw('correction', currentUser.name+' deleted '+live.length+' scan(s) of '+(rec? skuLabel(rec) : sku)+' (not on the packing slip)');
+      toast(live.length+' scan'+(live.length===1?'':'s')+' deleted.');
+      rerenderDetail(sh);
     }
   });
 }
@@ -3251,6 +3298,12 @@ function wireClientsView(){
   var ab=$('#btnAddClient'); if(ab) ab.addEventListener('click', function(){ openClientModal(null); });
 }
 
+function saveClientLetterhead(el){
+  [['data-shipto','#clShipTo'],['data-billto','#clBillTo'],
+   ['data-custid','#clCustId'],['data-permit','#clPermit']].forEach(function(pair){
+    var f=$(pair[1]); if(f) el.setAttribute(pair[0], f.value.trim());
+  });
+}
 function openClientModal(rec){
   var isEdit=!!rec;
   document.body.insertAdjacentHTML('beforeend',''+
@@ -3259,6 +3312,14 @@ function openClientModal(rec){
     '<div class="modal-body col" style="gap:12px;">'+
       '<div class="field"><label>Client name <span style="color:var(--bad);">*</span></label><input id="clName" value="'+(isEdit?esc(rec.getAttribute('data-name')):'')+'" placeholder="e.g. Needmaj Distributors, LLC"></div>'+
       '<div class="field"><label>Contact (optional)</label><input id="clContact" value="'+(isEdit?esc(rec.getAttribute('data-contact')):'')+'" placeholder="Name, phone, or email"></div>'+
+      '<hr class="sep" style="margin:4px 0;">'+
+      '<div class="small muted" style="margin:-4px 0 2px;">These fill in the printed invoice header. Enter them once per client.</div>'+
+      '<div class="field"><label>Ship to</label><textarea id="clShipTo" rows="3" placeholder="Good Times USA LLC&#10;8408 Temple Terrace HWY&#10;Tampa, FL 33637">'+(isEdit?esc(rec.getAttribute('data-shipto')||''):'')+'</textarea></div>'+
+      '<div class="field"><label>Bill to</label><textarea id="clBillTo" rows="3" placeholder="Leave blank to reuse Ship to">'+(isEdit?esc(rec.getAttribute('data-billto')||''):'')+'</textarea></div>'+
+      '<div class="grid grid-2" style="gap:12px;">'+
+        '<div class="field"><label>Customer ID</label><input id="clCustId" value="'+(isEdit?esc(rec.getAttribute('data-custid')||''):'')+'" placeholder="HA-5655"></div>'+
+        '<div class="field"><label>Permit #</label><input id="clPermit" value="'+(isEdit?esc(rec.getAttribute('data-permit')||''):'')+'"></div>'+
+      '</div>'+
       '<div class="field"><label>Notes (optional)</label><input id="clNotes" value="'+(isEdit?esc(rec.getAttribute('data-notes')):'')+'"></div>'+
       (isEdit?'<label class="row small chk" style="gap:7px;cursor:pointer;"><input type="checkbox" id="clActive" '+(rec.getAttribute('data-active')!=='false'?'checked':'')+' style="width:auto;"> Active (uncheck to hide from new shipments)</label>':'')+
     '</div>'+
@@ -3275,6 +3336,7 @@ function openClientModal(rec){
       rec.setAttribute('data-name', name);
       rec.setAttribute('data-contact', $('#clContact').value.trim());
       rec.setAttribute('data-notes', $('#clNotes').value.trim());
+      saveClientLetterhead(rec);
       rec.setAttribute('data-active', $('#clActive').checked?'true':'false');
       // keep existing shipments pointing at this client
       if(normDesc(oldName)!==normDesc(name)){
@@ -3285,6 +3347,7 @@ function openClientModal(rec){
       var el=ensureClient(name);
       el.setAttribute('data-contact', $('#clContact').value.trim());
       el.setAttribute('data-notes', $('#clNotes').value.trim());
+      saveClientLetterhead(el);
       appendAuditRaw('add-client', currentUser.name+' added client '+name);
     }
     closeModal('clientModalBack'); render();
@@ -3369,9 +3432,53 @@ function wireReportsView(){
   });
   wireReportRows();
 }
-async function exportShipmentReport(sh){
+/* The customer's invoice header, reproduced in the exact cells of their own template:
+   column B carries the letterhead and the Ship To / Bill To labels, column C the addresses,
+   column D the right-hand labels, column E their values. Column A is left empty, as in the
+   original. Anything blank stays blank rather than shifting the rows.               */
+function invoiceHeaderFields(sh){
+  var cl=findClientByName(sh.getAttribute('data-client')||'');
+  var shipTo=(cl&&cl.getAttribute('data-shipto')||'').split(/\r?\n/).filter(function(x){return x.trim();});
+  var billTo=(cl&&cl.getAttribute('data-billto')||'').split(/\r?\n/).filter(function(x){return x.trim();});
+  if(!billTo.length) billTo=shipTo;               // most slips bill where they ship
+  return {
+    company:(sh.getAttribute('data-client')||'').toUpperCase(),
+    shipTo:shipTo, billTo:billTo,
+    no: sh.getAttribute('data-invno')||sh.getAttribute('data-po')||'',
+    container: sh.getAttribute('data-container')||'',
+    date: sh.getAttribute('data-date')||'',
+    custId: (cl&&cl.getAttribute('data-custid'))||'',
+    permit: (cl&&cl.getAttribute('data-permit'))||'',
+    po: sh.getAttribute('data-po')||''
+  };
+}
+function invoiceHeaderRows(sh){
+  var f=invoiceHeaderFields(sh);
+  var R=[];
+  function put(row, col, val){                     // col: 0=A, 1=B, 2=C, 3=D, 4=E
+    while(R.length<=row) R.push([]);
+    var r=R[row]; while(r.length<=col) r.push('');
+    r[col]=val;
+  }
+  put(1,1,f.company); put(1,4,'Invoice');
+  put(3,1,'Ship To:');   put(3,3,'No:');          put(3,4,f.no);
+  put(4,2,f.shipTo[0]||'');
+  put(5,2,f.shipTo[1]||''); put(5,3,'CONTAINER:'); put(5,4,f.container);
+  put(6,1,'Bill To:');   put(6,2,f.shipTo[2]||'');
+  put(7,2,f.billTo[0]||''); put(7,3,'Date:');      put(7,4,f.date);
+  put(8,2,f.billTo[1]||'');
+  put(9,2,f.billTo[2]||''); put(9,3,'Customer ID:'); put(9,4,f.custId);
+  put(10,3,'PERMIT #:'); put(10,4,f.permit);
+  if(f.po){ put(11,3,'P.O. NUMBER'); put(11,4,f.po); }
+  R.push([]);
+  return R;
+}
+
+/* One set of rows, two renderings: a CSV you can edit in Excel, and a formatted sheet that
+   opens in Excel already looking like the printed invoice. */
+function buildShipmentRows(sh){
   var tot=shipmentTotals(sh);
-  var rows=[];
+  var rows=[], hdrIndex=-1;
   function J(attr){ try{ return JSON.parse(sh.getAttribute(attr)||'null'); }catch(e){ return null; } }
   var srcHeaders=J('data-srcheaders');
   // Shipments imported before the unit/weight columns were excluded still carry them in
@@ -3399,13 +3506,8 @@ async function exportShipmentReport(sh){
   }
   srcHeaders=trimRow(srcHeaders);
 
-  // ---------- packing-slip header block, laid out exactly like the slip ----------
-  rows.push([ (sh.getAttribute('data-client')||'').toUpperCase(), '', '', 'PACKING SLIP' ]);
-  rows.push([ 'Ship To:', '', '', 'No:', sh.getAttribute('data-po')||'' ]);
-  rows.push([ 'Bill To:', '', '', 'CONTAINER:', sh.getAttribute('data-container')||'' ]);
-  rows.push([ '', '', '', 'Date:', sh.getAttribute('data-date')||'' ]);
-  rows.push([ '', '', '', 'Customer ID:', '' ]);
-  rows.push([]);
+  // ---------- the invoice letterhead, cell for cell ----------
+  invoiceHeaderRows(sh).forEach(function(r){ rows.push(r); });
 
   // ---------- column headings: the slip's own, then the receiving columns ----------
   var RECV=['Flavour','Size','Scanned','Difference','Result','Barcode(s)'];
@@ -3419,6 +3521,7 @@ async function exportShipmentReport(sh){
   var hdr = (srcHeaders && srcHeaders.some(function(h){return String(h||'').trim();}))
     ? srcHeaders.slice() : DEFAULT_HEADERS.slice();
   while(hdr.length<width) hdr.push('');
+  hdrIndex=rows.length;
   rows.push(hdr.concat(RECV));
 
   // ---------- one row per packing-slip line ----------
@@ -3482,8 +3585,87 @@ async function exportShipmentReport(sh){
   if(sh.getAttribute('data-supplier')) rows.push(['SUPPLIER', sh.getAttribute('data-supplier')]);
   if(sh.getAttribute('data-notes')) rows.push(['NOTES', sh.getAttribute('data-notes')]);
 
-  var name='packing-slip-'+(sh.getAttribute('data-po')||sh.getAttribute('data-container')||sh.getAttribute('data-rid'))+'.csv';
-  await downloadCSV(name, rows);
+  var base='invoice-'+(sh.getAttribute('data-invno')||sh.getAttribute('data-po')||sh.getAttribute('data-container')||sh.getAttribute('data-rid'));
+  return {rows:rows, hdrIndex:hdrIndex, name:base, fields:invoiceHeaderFields(sh)};
+}
+
+async function exportShipmentReport(sh){
+  var built=buildShipmentRows(sh);
+  await downloadCSV(built.name+'.csv', built.rows);
+}
+
+/* Excel opens an HTML table as a worksheet, keeping merged cells, column widths, fonts and
+   colours — which a CSV cannot carry. This is the one that prints looking like the invoice. */
+async function exportShipmentPrintable(sh){
+  var built=buildShipmentRows(sh), f=built.fields;
+  var body=built.rows.slice(built.hdrIndex);
+  var head=body.shift()||[];
+  function td(v, cls){ return '<td'+(cls?' class="'+cls+'"':'')+'>'+esc(String(v==null?'':v))+'</td>'; }
+  var addr=function(a){ return a.map(function(x){ return esc(x); }).join('<br>'); };
+
+  var html=''+
+  '<html><head><meta charset="utf-8"><title>'+esc(built.name)+'</title><style>'+
+  'body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#000;}'+
+  'table{border-collapse:collapse;}'+
+  '.wrap{width:100%;}'+
+  '.logo{font-family:"Times New Roman",Georgia,serif;font-size:22pt;letter-spacing:6px;font-weight:400;'+
+    'border:2px solid #000;padding:8px 14px;text-align:center;white-space:nowrap;}'+
+  '.logo small{display:block;font-size:8pt;letter-spacing:4px;margin-top:2px;}'+
+  '.title{font-size:28pt;font-weight:400;text-align:left;}'+
+  '.lbl{font-weight:bold;text-align:right;padding:2px 8px;white-space:nowrap;}'+
+  '.permit{font-weight:bold;text-align:right;padding:2px 8px;color:#c00000;white-space:nowrap;}'+
+  '.val{border-bottom:1px solid #000;min-width:150px;padding:2px 6px;}'+
+  '.shiplbl{font-weight:bold;text-decoration:underline;padding-top:6px;}'+
+  '.grid td,.grid th{border:1px solid #000;padding:4px 6px;font-size:9pt;}'+
+  '.grid th{background:#d9d9d9;font-weight:bold;text-align:left;}'+
+  '.num{text-align:right;}'+
+  '</style></head><body>'+
+  '<table class="wrap"><tr>'+
+    '<td class="logo">'+esc(f.company)+'<small>DISTRIBUTORS, LLC</small></td>'+
+    '<td style="width:40px;"></td>'+
+    '<td class="title">Invoice</td>'+
+  '</tr></table>'+
+  '<table style="margin-top:10px;width:100%;"><tr>'+
+    '<td style="vertical-align:top;width:55%;">'+
+      '<table><tr><td class="shiplbl">Ship To:</td></tr>'+
+      '<tr><td style="padding-left:14px;">'+addr(f.shipTo)+'</td></tr>'+
+      '<tr><td class="shiplbl">Bill To:</td></tr>'+
+      '<tr><td style="padding-left:14px;">'+addr(f.billTo)+'</td></tr></table>'+
+    '</td>'+
+    '<td style="vertical-align:top;">'+
+      '<table>'+
+      '<tr><td class="lbl">No:</td><td class="val">'+esc(f.no)+'</td></tr>'+
+      '<tr><td class="lbl">CONTAINER:</td><td class="val">'+esc(f.container)+'</td></tr>'+
+      '<tr><td class="lbl">Date:</td><td class="val">'+esc(f.date)+'</td></tr>'+
+      '<tr><td class="lbl">Customer ID:</td><td class="val">'+esc(f.custId)+'</td></tr>'+
+      '<tr><td class="permit">PERMIT #:</td><td class="val">'+esc(f.permit)+'</td></tr>'+
+      (f.po? '<tr><td class="lbl">P.O. NUMBER</td><td class="val">'+esc(f.po)+'</td></tr>':'')+
+      '</table>'+
+    '</td>'+
+  '</tr></table>'+
+  '<table class="grid" style="margin-top:14px;width:100%;"><thead><tr>'+
+    head.map(function(h){ return '<th>'+esc(String(h==null?'':h))+'</th>'; }).join('')+
+  '</tr></thead><tbody>'+
+    body.map(function(r){
+      if(!r.length) return '<tr><td colspan="'+head.length+'" style="border:none;height:8px;"></td></tr>';
+      return '<tr>'+r.map(function(c,i){
+        return td(c, (typeof c==='number'||/^-?\d+$/.test(String(c)))&&i>1 ? 'num':'');
+      }).join('')+'</tr>';
+    }).join('')+
+  '</tbody></table></body></html>';
+
+  var downloadsApi=null;
+  try{ downloadsApi = await claude.use('downloads'); }catch(e){ downloadsApi=null; }
+  if(!downloadsApi){ toast('Downloads are not available in this view.','bad'); return; }
+  try{
+    await downloadsApi.save({filename:built.name+'.html', data:html});
+    toast('Saved '+built.name+'.html — open it in Excel to print.');
+  }catch(err){
+    var code=err&&err.code;
+    if(code==='declined'){ /* cancelled */ }
+    else if(code==='extension_not_enabled'){ toast('This view cannot save .html files — use Export CSV instead.','bad'); }
+    else toast('Could not save file: '+((err&&err.message)||code||'unknown error'),'bad');
+  }
 }
 
 /* ================================================================ AUDIT TRAIL */
