@@ -179,9 +179,15 @@ exports:
   column widths, fonts and colours (including the red `PERMIT #:`). This is the one that
   prints looking like the invoice. A CSV cannot carry any of that.
 
-The letterhead fields live on the **client** (`data-shipto`, `data-billto`, `data-custid`,
-`data-permit`) — entered once, used by every shipment — while `No:`, `CONTAINER:` and
-`Date:` come from the shipment. `sniffHeaderFields()` reads Customer ID and Permit # out of
+**The letterhead is the warehouse's own company, not the client.** The first version put
+the client's name in the letterhead box, which is backwards: the letterhead is who issues
+the paperwork, and the client is who it ships to. Company name, second line, address and a
+default permit # live in `#settings` (`data-company`, `data-companysub`, `data-companyaddr`,
+`data-companypermit`), editable under Users & Security → Invoice letterhead. The client
+carries the other half (`data-shipto`, `data-billto`, `data-custid`, `data-permit`) —
+entered once, used by every shipment — while `No:`, `CONTAINER:` and `Date:` come from the
+shipment. Ship To / Bill To fall back to the client's name when no address is set, so the
+block is never blank. `sniffHeaderFields()` reads Customer ID and Permit # out of
 an imported slip's letterhead and fills the client in on first sight.
 
 The letterhead is a text rendering of the wordmark, not the customer's logo file; embedding
@@ -301,7 +307,11 @@ lessons from real slips.
 ## Testing
 
 There is no test runner in the repo; verification was done by driving the real page with
-Playwright. Any change to import, scanning, saving or filtering should be re-verified the
+Playwright. `wrap.js` builds two pages from the same source: `wrapped.html` with the live
+`#db` as shipped, and `wrapped-seed.html` with a minimal seed. **The regression suites run
+against the seed** — pointing them at real data makes them fail on fixture collisions
+(a suite expecting two "GOOD TIMES" products finds forty-five) rather than on real bugs.
+One suite runs against the live data deliberately, to prove a release does not disturb it. Any change to import, scanning, saving or filtering should be re-verified the
 same way, **typing character by character rather than setting values at once** — the two
 worst bugs in this project only appeared under real typing.
 
