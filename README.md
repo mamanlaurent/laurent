@@ -175,9 +175,16 @@ exports:
   places the letterhead in the customer's own cells: column B the company and the
   Ship To / Bill To labels, C the addresses, D the right-hand labels, E their values.
   Blank cells stay blank rather than shifting rows.
-- **Print-ready sheet** — HTML, which Excel opens as a worksheet keeping merged cells,
-  column widths, fonts and colours (including the red `PERMIT #:`). This is the one that
-  prints looking like the invoice. A CSV cannot carry any of that.
+- **Excel invoice sheet** — HTML with Excel's own worksheet directives, saved as
+  `.xls.html`. Excel opens it as a real sheet (named tab, landscape, fit-to-one-page-wide),
+  fully editable, and Save As turns it into a genuine `.xlsx`. It carries the letterhead,
+  the bordered value cells and the red `PERMIT #:`. A CSV cannot carry any of that.
+
+  **It must be ONE flat table.** Nested tables get mangled by Excel, and a `<thead>` is
+  hoisted above everything — which put the grey column-header strip above the letterhead.
+  Every row therefore has exactly `N` cells, the letterhead sits in the same columns as the
+  CSV, and the grid's header row is an ordinary `<tr>` of `.hdr` cells. Barcode columns
+  carry `mso-number-format:"\@"` so Excel cannot turn `842426196949` into `8.42426E+11`.
 
 **The letterhead is the warehouse's own company, not the client.** The first version put
 the client's name in the letterhead box, which is backwards: the letterhead is who issues
