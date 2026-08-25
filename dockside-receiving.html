@@ -1891,6 +1891,7 @@ function renderEnrollPanel(sh){
     '<input id="enrollFilter" class="enroll-filter" placeholder="Type to narrow the list…" autocomplete="off" value="'+esc(enrollFilter)+'">'+
     '<div class="enroll-list">'+(rows||'<div class="small" style="color:#aeb7c2;padding:10px;">No packing-slip items match that text.</div>')+'</div>'+
     '<div class="row" style="margin-top:10px;gap:8px;">'+
+      '<button class="btn btn-sm" id="btnEnrollNew" style="background:#0f2a1c;border-color:#2c6b48;color:#7be3ab;">+ Add as a new product</button>'+
       '<button class="btn btn-sm" id="btnEnrollReject" style="background:#3a1512;border-color:#7d3a30;color:#f3958a;">Not on this packing slip</button>'+
       '<button class="btn btn-sm" id="btnEnrollSkip" style="background:#232a34;border-color:#39424f;color:#dfe3e8;">Skip for now</button>'+
     '</div>'+
@@ -2115,6 +2116,8 @@ function wireShipmentDetail(sh){
       // a scanner fires keystrokes then Enter; don't let that submit the filter box
       ef.addEventListener('keydown', function(ev){ if(ev.key==='Enter') ev.preventDefault(); });
     }
+    var nw=$('#btnEnrollNew', enrollPanel);
+    if(nw) nw.addEventListener('click', function(){ openNewProductFromScan(sh, code); });
     var rj=$('#btnEnrollReject', enrollPanel);
     if(rj) rj.addEventListener('click', function(){ rejectEnroll(sh, code); });
     var sk=$('#btnEnrollSkip', enrollPanel);
@@ -2250,6 +2253,54 @@ function enrollBarcode(sh, code, sku){
   flashAlert('ok', 'Learned: '+(out.desc||sku));
   var input=document.getElementById('scanInput'); if(input && keyboardScanMode) input.focus();
 }
+/* A box whose barcode is on neither the slip nor the catalogue used to be a dead end: the
+   only options were "not on this packing slip" or skip, and nothing was ever added to the
+   master list. Now the operator can create the product then and there. The description is
+   stored EXACTLY as typed — the app cannot invent your master-list wording for an item that
+   was never in your master list. */
+function openNewProductFromScan(sh, code){
+  document.body.insertAdjacentHTML('beforeend',''+
+  '<div class="modal-back" id="newProdBack"><div class="modal" style="max-width:520px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">Add this to your Master SKU list</h3><button class="btn-ghost" id="closeNewProd">✕</button></div>'+
+    '<div class="modal-body col" style="gap:12px;">'+
+      '<div class="small muted">Barcode <span class="mono" style="font-weight:700;color:var(--ink);">'+esc(code)+'</span> — not on this packing slip and not in your product list yet.</div>'+
+      '<div class="field"><label>Description <span style="color:var(--bad);">*</span></label>'+
+        '<input id="npDesc" list="skuDatalist" placeholder="Type it exactly as it reads on your master list">'+
+        '<div class="small muted" style="margin-top:5px;">Saved word for word as you type it. Start typing to reuse the wording of a product you already have.</div></div>'+
+      '<div class="grid grid-2" style="gap:12px;">'+
+        '<div class="field"><label>Flavour</label><input id="npFlavor" placeholder="e.g. SWEET"></div>'+
+        '<div class="field"><label>Size / pack</label><input id="npSize" placeholder="e.g. 15 CT DISPLAY"></div>'+
+      '</div>'+
+      '<label class="row small chk" style="gap:7px;cursor:pointer;"><input type="checkbox" id="npAddLine" checked style="width:auto;"> Also add it to this packing slip, so the box counts against a line</label>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelNewProd">Cancel</button><button class="btn btn-primary" id="saveNewProd">Add product</button></div>'+
+  '</div></div>');
+  var close=function(){ closeModal('newProdBack'); };
+  $('#closeNewProd').onclick=$('#cancelNewProd').onclick=close;
+  setTimeout(function(){ try{ $('#npDesc').focus(); }catch(e){} }, 60);
+  $('#saveNewProd').addEventListener('click', function(){
+    var desc=$('#npDesc').value.trim();
+    if(!desc){ toast('Description is required.','bad'); return; }
+    var flavor=$('#npFlavor').value.trim(), size=$('#npSize').value.trim();
+    var rec=ensureMasterSku(desc, '', [code], flavor, size);
+    var sku=rec.getAttribute('data-sku');
+    appendAuditRaw('add-sku', currentUser.name+' added product '+sku+' — '+desc+(flavor?' ('+flavor+')':'')+' from a scan of "'+code+'"');
+    if($('#npAddLine').checked && !$$('.line',sh).some(function(l){ return l.getAttribute('data-sku')===sku; })){
+      var line=document.createElement('div'); line.className='line';
+      line.setAttribute('data-sku', sku); line.setAttribute('data-desc', desc); line.setAttribute('data-expected','0');
+      $('.lines',sh).appendChild(line);
+      appendAuditRaw('add-line', currentUser.name+' added '+sku+' to the packing slip from a scan');
+    }
+    close();
+    pendingEnroll.shift(); enrollFilter='';
+    var out=performScanMutation(sh, code, currentUser.name);
+    beep('ok');
+    rerenderDetail(sh);
+    flashAlert('ok', 'Added to your product list: '+(out.desc||desc));
+    var input=document.getElementById('scanInput'); if(input && keyboardScanMode) input.focus();
+  });
+}
+
 /* the operator says this box isn't on the slip — record it as a genuine unknown */
 function rejectEnroll(sh, code){
   pendingEnroll.shift(); enrollFilter='';

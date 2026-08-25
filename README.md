@@ -16,10 +16,27 @@ boxes as they come off the truck. Expected / Scanned / Remaining / Difference up
 for every item, on every connected device at once. Wrong product, over-count, unknown
 barcode and not-on-slip each get their own beep and colour.
 
+**Where descriptions come from.** A product's wording is set once, by whoever created it,
+and nothing overwrites it afterwards:
+
+- **Imported from the master list** → stored exactly as the file has it. Re-importing the
+  master list updates the wording; importing a *packing slip* never does.
+- **Created from a packing slip** (the item was not in the catalogue) → the slip's wording,
+  because that is the only wording that exists for it.
+- **Created from a scan** (`openNewProductFromScan`) → exactly what the operator types.
+
+An item that is not in the master list has no master-list wording to copy — so "keep my
+master-list description" only means anything for items already in it, and for those it
+holds.
+
 **It learns barcodes.** The packing slips this was built for have no SKU or barcode column —
 the product description *is* the identity. So the first time an unknown barcode is scanned,
 the operator is asked once which line it is; the barcode is then bound to that product
-permanently and recognised instantly on every future container.
+permanently and recognised instantly on every future container. If the box is on neither
+the slip nor the catalogue, **Add as a new product** creates it there and then — barcode
+attached, description word for word as typed, optionally added to the slip so the box
+counts. Without that the scan was a dead end: logged as an unknown barcode, nothing
+learned.
 
 **Also:** clients with full receiving history, master product catalogue (bulk-clearable —
 whole thing or just what the search is showing, and **Export CSV round-trips it back,
