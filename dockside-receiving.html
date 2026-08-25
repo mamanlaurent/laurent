@@ -3728,23 +3728,22 @@ function openExcelHelp(){
   '<div class="modal-back" id="excelHelpBack"><div class="modal" style="max-width:560px;">'+
     '<div class="modal-head"><h3 style="margin:0;flex:1;">Opening the invoice sheet in Excel</h3><button class="btn-ghost" id="closeExcelHelp">✕</button></div>'+
     '<div class="modal-body">'+
-      '<p style="margin:0 0 12px;">The file downloads as <span class="mono"><strong>….html</strong></span>. '+
-        'Double-clicking it opens your web browser — that is the browser, not the file being broken.</p>'+
-      '<p style="margin:0 0 8px;"><strong>To edit it in Excel:</strong> right-click the downloaded file → '+
-        '<strong>Open with</strong> → <strong>Excel</strong>. It opens as a proper worksheet with the letterhead, '+
-        'borders and the red permit line, and every cell is editable. Then '+
-        '<strong>File → Save As → Excel Workbook (.xlsx)</strong> to keep it as a normal Excel file.</p>'+
+      '<p style="margin:0 0 12px;">The file saves as <span class="mono"><strong>….html</strong></span>. Windows only lists apps '+
+        'registered for that type, so <strong>Excel will not appear under "Open with"</strong>. Open it from Excel instead — '+
+        'either of these works every time:</p>'+
+      '<p style="margin:0 0 8px;"><strong>1 · Drag it in.</strong> Open Excel, then drag the downloaded file from your '+
+        'Downloads folder onto the open Excel window.</p>'+
+      '<p style="margin:0 0 12px;"><strong>2 · Or File → Open.</strong> In Excel: <strong>File → Open → Browse</strong>, go to '+
+        'Downloads, set the file-type box beside the file name to <strong>All Files (*.*)</strong> — otherwise the file is '+
+        'hidden — then pick it.</p>'+
       '<div class="small" style="background:var(--warn-bg);color:var(--warn);padding:11px 13px;border-radius:7px;margin:0 0 12px;font-weight:600;">'+
-        'If Excel shows a yellow <strong>PROTECTED VIEW</strong> bar, click <strong>Enable Editing</strong>. '+
-        'Windows blocks editing on every file downloaded from the internet until you do — it happens to the CSV too.</div>'+
-      '<p style="margin:0 0 12px;"><strong>To print it:</strong> you do not need Excel at all. It is already open in your '+
-        'browser and it prints exactly as it looks — press <span class="kbd">Ctrl</span>+<span class="kbd">P</span>. '+
-        'The same dialog can save it as a PDF.</p>'+
-      '<p style="margin:0 0 12px;">Both exports are fully editable once they are open in Excel — this one keeps the '+
-        'letterhead and borders, the Plain CSV is the same data with no formatting.</p>'+
-      '<p class="small muted" style="margin:0 0 12px;">Windows hides file extensions by default, so this file may look like it '+
-        'ends in <span class="mono">.html</span> in one place and show no extension in another. Ignore the name — '+
-        '<strong>Open with → Excel</strong> works either way.</p>'+
+        'If a yellow <strong>PROTECTED VIEW</strong> bar appears, click <strong>Enable Editing</strong>. Windows blocks editing '+
+        'on every file downloaded from the internet until you do — it happens to the CSV too.</div>'+
+      '<p style="margin:0 0 12px;">It opens as a normal worksheet: letterhead, borders, red permit line, every cell editable. '+
+        'Then <strong>File → Save As → Excel Workbook (.xlsx)</strong> and it is an ordinary Excel file from then on.</p>'+
+      '<p style="margin:0 0 12px;"><strong>Just printing it? Skip Excel entirely.</strong> Double-click the file — it opens in '+
+        'your browser and prints exactly as it looks. Press <span class="kbd">Ctrl</span>+<span class="kbd">P</span>; the same '+
+        'dialog saves it as a PDF for your records.</p>'+
       '<div class="small" style="background:var(--concrete);padding:11px 13px;border-radius:7px;">'+
         '<strong>Why not just give you an .xlsx?</strong> This app runs inside Claude, and the file types it is allowed to hand you do not include '+
         '<span class="mono">.xlsx</span> or <span class="mono">.xls</span>. The sheet itself is a genuine Excel worksheet — only the file name has to end in '+
