@@ -171,6 +171,13 @@ extended types are on, `docx pptx epub csv ttf html svg pdf`. **`xlsx` is not on
 list**, so a published artifact cannot hand the viewer a real Excel workbook. Hence two
 exports:
 
+**Both exports are editable in Excel.** The formatted one only looks otherwise, for two
+reasons worth knowing before "fixing" it again: the download system's allowed extensions
+exclude `.xls`/`.xlsx`, so it must be saved as `.html` and double-clicking opens a browser
+(rename it to end in `.xls`, or open it from inside Excel); and Excel puts any downloaded
+file into **Protected View** until "Enable Editing" is clicked — that hits the CSV too. The
+`?` beside the export buttons explains both.
+
 - **Export CSV** — editable in Excel, which was a hard requirement. `invoiceHeaderRows()`
   places the letterhead in the customer's own cells: column B the company and the
   Ship To / Bill To labels, C the addresses, D the right-hand labels, E their values.

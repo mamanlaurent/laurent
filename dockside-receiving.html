@@ -1910,8 +1910,9 @@ function renderShipmentDetail(sh){
     '<button class="btn-ghost" id="backToList">← All shipments</button>'+
     '<div class="spacer"></div>'+
     '<span class="pill pill-'+status.toLowerCase()+'">'+status+'</span>'+
-    '<button class="btn btn-primary btn-sm" id="btnExportPrintable" title="Opens in Excel with the NEEDMAJ letterhead, Ship To / Bill To and the right-hand details. Save As .xlsx to keep it.">📗 Excel invoice sheet</button>'+
-    '<button class="btn btn-sm" id="btnExportShipment" title="Same data with no formatting">⇩ Plain CSV</button>'+
+    '<button class="btn btn-primary btn-sm" id="btnExportPrintable" title="The formatted invoice — letterhead, Ship To / Bill To, right-hand details. Editable in Excel.">📗 Excel invoice sheet</button>'+
+    '<button class="btn-ghost btn-sm" id="btnExcelHelp" title="How to open it in Excel">?</button>'+
+    '<button class="btn btn-sm" id="btnExportShipment" title="Raw data only — a CSV file cannot carry the letterhead formatting">⇩ Plain CSV</button>'+
     (isAdmin()?'<button class="btn btn-sm btn-danger" id="btnDeleteShipment">🗑 Delete</button>':'')+
   '</div>';
 
@@ -2054,6 +2055,7 @@ function wireShipmentDetail(sh){
   $('#backToList').addEventListener('click', function(){ stopCamera(); goto('shipments'); });
   $('#btnExportShipment').addEventListener('click', function(){ exportShipmentReport(sh); });
   var pb=$('#btnExportPrintable'); if(pb) pb.addEventListener('click', function(){ exportShipmentPrintable(sh); });
+  var xh=$('#btnExcelHelp'); if(xh) xh.addEventListener('click', openExcelHelp);
   var delSh=$('#btnDeleteShipment');
   if(delSh) delSh.addEventListener('click', function(){ deleteShipment(sh.getAttribute('data-rid')); });
   $$('[data-del-line]').forEach(function(b){ b.addEventListener('click', function(){ deleteLine(sh, b.getAttribute('data-del-line')); }); });
@@ -3611,6 +3613,36 @@ async function exportShipmentReport(sh){
 
 /* Excel opens an HTML table as a worksheet, keeping merged cells, column widths, fonts and
    colours — which a CSV cannot carry. This is the one that prints looking like the invoice. */
+/* The formatted sheet has to be saved with an .html extension — the download system's
+   allowed file types do not include .xls or .xlsx — so double-clicking it opens a browser,
+   which is why it looks "not editable". Renaming it, or opening it from inside Excel, gets
+   the formatted, editable sheet. Say so plainly rather than leaving people to discover it. */
+function openExcelHelp(){
+  document.body.insertAdjacentHTML('beforeend',''+
+  '<div class="modal-back" id="excelHelpBack"><div class="modal" style="max-width:560px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">Opening the invoice sheet in Excel</h3><button class="btn-ghost" id="closeExcelHelp">✕</button></div>'+
+    '<div class="modal-body">'+
+      '<p style="margin:0 0 12px;">The file downloads as <span class="mono">…<strong>.xls.html</strong></span>. '+
+        'Double-clicking it opens your browser, which is why it looks like a picture you cannot edit. Either of these gives you the real sheet:</p>'+
+      '<p style="margin:0 0 8px;"><strong>Quickest — rename it.</strong> Delete the <span class="mono">.html</span> from the end so it ends in '+
+        '<span class="mono">.xls</span>, then double-click. Excel opens it with the letterhead, borders and the red permit line, fully editable.</p>'+
+      '<p style="margin:0 0 12px;"><strong>Or open it from Excel.</strong> Excel → File → Open → point at the downloaded file. Same result, no renaming.</p>'+
+      '<div class="small" style="background:var(--warn-bg);color:var(--warn);padding:11px 13px;border-radius:7px;margin:0 0 12px;font-weight:600;">'+
+        'If Excel shows a yellow <strong>PROTECTED VIEW</strong> bar across the top, click <strong>Enable Editing</strong>. '+
+        'Windows blocks editing on every file downloaded from the internet until you do — it is not the file, and it happens to the CSV too.</div>'+
+      '<p style="margin:0 0 12px;">Then edit anything you like and <strong>File → Save As → Excel Workbook (.xlsx)</strong> to keep it as a normal Excel file. '+
+        'Both exports are fully editable — the invoice sheet keeps the letterhead and borders, the CSV is the same data with no formatting.</p>'+
+      '<div class="small" style="background:var(--concrete);padding:11px 13px;border-radius:7px;">'+
+        '<strong>Why not just give you an .xlsx?</strong> This app runs inside Claude, and the file types it is allowed to hand you do not include '+
+        '<span class="mono">.xlsx</span>. The sheet itself is a genuine Excel worksheet — only the file name has to end in <span class="mono">.html</span>. '+
+        'A hosted version on your own domain would download a real <span class="mono">.xlsx</span> directly.</div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn btn-primary" id="okExcelHelp">Got it</button></div>'+
+  '</div></div>');
+  var close=function(){ closeModal('excelHelpBack'); };
+  $('#closeExcelHelp').onclick=close; $('#okExcelHelp').onclick=close;
+}
+
 async function exportShipmentPrintable(sh){
   var built=buildShipmentRows(sh), f=built.fields;
   var body=built.rows.slice(built.hdrIndex);
@@ -3705,7 +3737,7 @@ async function exportShipmentPrintable(sh){
   if(!downloadsApi){ toast('Downloads are not available in this view.','bad'); return; }
   try{
     await downloadsApi.save({filename:built.name+'.xls.html', data:html});
-    toast('Saved '+built.name+'.xls.html — open it in Excel, then Save As .xlsx to keep it.');
+    toast('Saved '+built.name+'.xls.html — rename it to end in .xls, or open it from Excel. Press ? for the steps.');
   }catch(err){
     var code=err&&err.code;
     if(code==='declined'){ /* cancelled */ }
