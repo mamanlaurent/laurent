@@ -340,20 +340,51 @@ function saveLocal(){
   paintSaveStatus();
 }
 /* on boot, take whichever copy is newer: what the artifact served, or what this device saved */
+/* Two copies exist: the one baked into the page when it was last published (the "cloud
+   copy") and whatever this device has in localStorage. The newer one wins on boot — which
+   silently strands a device: make one change on the phone after the computer's cloud save
+   and the phone keeps its own copy forever, never showing the computer's work. So remember
+   the cloud copy, say plainly which one is on screen, and offer a way back. */
+var cloudDbHtml=null, cloudSavedAt='', usingLocalCopy=false, localSavedAt='';
 function loadLocalIfNewer(){
   if(!dbRoot) return;
-  var servedAt=dbRoot.getAttribute('data-savedat')||'';
+  cloudSavedAt=dbRoot.getAttribute('data-savedat')||'';
+  cloudDbHtml=dbRoot.innerHTML;
   var raw=null;
   try{ raw=localStorage.getItem(LS_KEY); }catch(e){ return; }
   if(!raw) return;
   var saved=null;
   try{ saved=JSON.parse(raw); }catch(e){ return; }
   if(!saved || !saved.html) return;
-  if(!servedAt || (saved.savedAt||'') > servedAt){
+  if(!cloudSavedAt || (saved.savedAt||'') > cloudSavedAt){
     dbRoot.innerHTML=saved.html;
-    dbRoot.setAttribute('data-savedat', saved.savedAt||stampNow());
+    localSavedAt=saved.savedAt||stampNow();
+    dbRoot.setAttribute('data-savedat', localSavedAt);
+    usingLocalCopy=true;
     bindDbRefs();
   }
+}
+/* Throw away this device's copy and go back to what the cloud holds. */
+function useCloudCopy(){
+  if(cloudDbHtml===null){ toast('No cloud copy was loaded with this page.','bad'); return; }
+  confirmDelete({
+    title:'Use the cloud copy',
+    body:'Replace what is on <strong>this device</strong> with the copy saved to the cloud on '+
+      esc(fmtDateTime(cloudSavedAt))+'?',
+    warn:'Anything done on this device since then and not saved to the cloud will be lost. '+
+      'Export a backup first if you are not sure.',
+    confirmWord:'REPLACE',
+    onConfirm:function(){
+      dbRoot.innerHTML=cloudDbHtml;
+      dbRoot.setAttribute('data-savedat', cloudSavedAt);
+      bindDbRefs();
+      usingLocalCopy=false;
+      try{ localStorage.removeItem(LS_KEY); }catch(e){}
+      appendAuditRaw('use-cloud-copy', (currentUser?currentUser.name:'system')+' replaced this device\'s copy with the cloud copy');
+      toast('Now showing the cloud copy.');
+      render();
+    }
+  });
 }
 function markSaving(){
   saveState='saving';
@@ -1477,6 +1508,7 @@ function renderNewShipmentModal(){
         '<div class="field"><label>Container #</label><input id="nsContainer" placeholder="e.g. MSCU1234567"></div>'+
         '<div class="field"><label>Packing Slip / PO #</label><input id="nsPO" placeholder="PO-00123"></div>'+
         '<div class="field"><label>Invoice No.</label><input id="nsInvNo" placeholder="Shows as \'No:\' on the printed header"></div>'+
+        '<div class="field"><label>Customer ID</label><input id="nsCustId" placeholder="Saved on the client and reused next time"></div>'+
         '<div class="field"><label>Date</label><input id="nsDate" type="date" value="'+todayStr()+'"></div>'+
         '<div class="field"><label>Supplier</label><input id="nsSupplier" placeholder="Optional"></div>'+
         '<div class="field"><label>Notes</label><input id="nsNotes" placeholder="Optional"></div>'+
@@ -1743,6 +1775,7 @@ function wireNewShipmentModal(){
       var sniffed=sniffHeaderFields(rows, importState.headerIdx);
       if(sniffed.po && !$('#nsPO').value) $('#nsPO').value=sniffed.po;
       if(sniffed.invno && $('#nsInvNo') && !$('#nsInvNo').value) $('#nsInvNo').value=sniffed.invno;
+      if(sniffed.custid && $('#nsCustId') && !$('#nsCustId').value) $('#nsCustId').value=sniffed.custid;
       // Customer ID and Permit # live on the client — carry them across on first sight
       importState.sniffedClient={custid:sniffed.custid, permit:sniffed.permit};
       if(sniffed.container && !$('#nsContainer').value) $('#nsContainer').value=sniffed.container;
@@ -1752,6 +1785,12 @@ function wireNewShipmentModal(){
       if(sniffed.date && $('#nsDate').value===todayStr()) $('#nsDate').value=sniffed.date;
       renderImportMapper();
     }catch(e){ toast(e.message||'Could not parse that file.','bad'); $('#nsMapper').innerHTML=''; }
+  });
+  var nsCl=$('#nsClient');
+  if(nsCl) nsCl.addEventListener('change', function(){
+    var f=$('#nsCustId'); if(!f || f.value.trim()) return;
+    var known=clientField(this.value.trim(),'data-custid');
+    if(known) f.value=known;
   });
   $('#saveNewShip').addEventListener('click', async function(){
     var client=$('#nsClient').value.trim();
@@ -1780,6 +1819,8 @@ function wireNewShipmentModal(){
       shipmentsEl.appendChild(sh);
       var clRec=ensureClient(client); // register the client so it gets a history page
       var sn=importState.sniffedClient||{};
+      var typedCust=($('#nsCustId') && $('#nsCustId').value.trim())||'';
+      if(typedCust) clRec.setAttribute('data-custid', typedCust);
       if(sn.custid && !(clRec.getAttribute('data-custid')||'').trim()) clRec.setAttribute('data-custid', sn.custid);
       if(sn.permit && !(clRec.getAttribute('data-permit')||'').trim()) clRec.setAttribute('data-permit', sn.permit);
       appendAuditRaw('create-shipment', currentUser.name+' created shipment for '+client+(attrs['data-container']?' / container '+attrs['data-container']:''));
@@ -2569,6 +2610,10 @@ function openAddLineModal(sh){
     closeModal('addLineBack'); render();
   });
 }
+function clientField(name, attr){
+  var c=findClientByName(name||'');
+  return (c && c.getAttribute(attr)) || '';
+}
 function openEditHeaderModal(sh){
   document.body.insertAdjacentHTML('beforeend', '' +
     '<div class="modal-back" id="editHeadBack"><div class="modal">'+
@@ -2578,6 +2623,9 @@ function openEditHeaderModal(sh){
         '<datalist id="ehClientList">'+allClients().map(function(c){return '<option value="'+esc(c.getAttribute('data-name'))+'">';}).join('')+'</datalist></div>'+
       '<div class="field"><label>Container #</label><input id="ehContainer" value="'+esc(sh.getAttribute('data-container'))+'"></div>'+
       '<div class="field"><label>Packing Slip / PO #</label><input id="ehPO" value="'+esc(sh.getAttribute('data-po'))+'"></div>'+
+      '<div class="field"><label>Invoice No.</label><input id="ehInvNo" value="'+esc(sh.getAttribute('data-invno')||'')+'" placeholder="Prints as \'No:\'"></div>'+
+      '<div class="field"><label>Customer ID</label><input id="ehCustId" value="'+esc(clientField(sh.getAttribute('data-client'),'data-custid'))+'" placeholder="Saved on the client"></div>'+
+      '<div class="field"><label>Permit #</label><input id="ehPermit" value="'+esc(clientField(sh.getAttribute('data-client'),'data-permit'))+'" placeholder="Saved on the client"></div>'+
       '<div class="field"><label>Date</label><input id="ehDate" type="date" value="'+esc(sh.getAttribute('data-date'))+'"></div>'+
       '<div class="field"><label>Supplier</label><input id="ehSupplier" value="'+esc(sh.getAttribute('data-supplier'))+'"></div>'+
       '<div class="field"><label>Notes</label><input id="ehNotes" value="'+esc(sh.getAttribute('data-notes'))+'"></div>'+
@@ -2591,6 +2639,13 @@ function openEditHeaderModal(sh){
     sh.setAttribute('data-client',newClient);
     sh.setAttribute('data-container',$('#ehContainer').value.trim());
     sh.setAttribute('data-po',$('#ehPO').value.trim());
+    sh.setAttribute('data-invno',$('#ehInvNo').value.trim());
+    // Customer ID and Permit # belong to the client, so editing them here updates the client
+    var clRec=newClient? findClientByName(newClient) : null;
+    if(clRec){
+      clRec.setAttribute('data-custid', $('#ehCustId').value.trim());
+      clRec.setAttribute('data-permit', $('#ehPermit').value.trim());
+    }
     sh.setAttribute('data-date',$('#ehDate').value||todayStr());
     sh.setAttribute('data-supplier',$('#ehSupplier').value.trim());
     sh.setAttribute('data-notes',$('#ehNotes').value.trim());
@@ -3819,6 +3874,7 @@ function renderUsersView(){
       '<td><span class="badge-role">'+esc(e.getAttribute('data-role'))+'</span></td>'+
       '<td>'+(active?'Active':'Deactivated')+'</td>'+
       '<td class="row" style="gap:4px;">'+
+        '<button class="btn-ghost btn-sm" data-edit-emp="'+esc(e.getAttribute('data-rid'))+'">Edit</button>'+
         (owner?'':'<button class="btn-ghost btn-sm" data-toggle-role="'+esc(e.getAttribute('data-rid'))+'">Make '+(e.getAttribute('data-role')==='admin'?'employee':'admin')+'</button>'+
         '<button class="btn-ghost btn-sm" data-toggle-emp="'+esc(e.getAttribute('data-rid'))+'">'+(active?'Deactivate':'Reactivate')+'</button>'+
         '<button class="btn-ghost btn-sm" data-del-emp="'+esc(e.getAttribute('data-rid'))+'" title="Delete user">🗑</button>')+
@@ -3851,8 +3907,15 @@ function renderUsersView(){
     '<p class="small muted" style="margin:0 0 10px;">Everything you do is saved on <strong>this device</strong> the moment you do it, and survives closing the browser. '+
       '<strong>Save to cloud</strong> stores a copy on the artifact itself so another device sees it next time it opens the link — it reloads the page, so do it between containers rather than mid-scan. '+
       'A <strong>backup file</strong> is the dependable way to move everything to another device or keep a copy off the system.</p>'+
+    (usingLocalCopy?
+      '<div class="small" style="background:var(--warn-bg);color:var(--warn);padding:11px 13px;border-radius:7px;margin:0 0 12px;font-weight:600;">'+
+        'This device is showing <strong>its own copy</strong>, last changed '+esc(fmtDateTime(localSavedAt))+'. '+
+        'The cloud copy is from '+esc(cloudSavedAt? fmtDateTime(cloudSavedAt):'—')+'. '+
+        'Other devices will not see this device\'s work until you press <strong>Save to cloud</strong>.'+
+      '</div>' : '')+
     '<div class="row wrap" style="gap:8px;">'+
       '<button class="btn btn-sm" id="btnCloudSave2">☁ Save to cloud now</button>'+
+      (usingLocalCopy? '<button class="btn btn-sm" id="btnUseCloud">⇩ Use the cloud copy instead</button>' : '')+
       '<button class="btn btn-sm" id="btnExportBackup">⇩ Export backup file</button>'+
       '<label class="btn btn-sm">⇪ Restore from backup<input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></label>'+
     '</div>'+
@@ -3860,6 +3923,54 @@ function renderUsersView(){
   '</div>'+
   '<div class="card pad" style="margin-bottom:12px;"><div class="row"><h3 style="margin:0;flex:1;">Employees</h3><button class="btn btn-primary btn-sm" id="btnAddEmp">+ Add employee</button></div></div>'+
   '<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+}
+/* Employees are edited, not just added and deleted — a name typed wrong on day one used to
+   be permanent, and the only way to change a role was the toggle button. The owner account
+   keeps its role and its owner flag; everything else is editable. */
+function openEmployeeModal(rec){
+  var isEdit=!!rec, owner=isEdit && rec.getAttribute('data-owner')==='true';
+  document.body.insertAdjacentHTML('beforeend','' +
+    '<div class="modal-back" id="empModalBack"><div class="modal" style="max-width:420px;">'+
+    '<div class="modal-head"><h3 style="margin:0;flex:1;">'+(isEdit?'Edit employee':'Add employee')+'</h3><button class="btn-ghost" id="closeEmpModal">✕</button></div>'+
+    '<div class="modal-body col" style="gap:12px;">'+
+      '<div class="field"><label>Name <span style="color:var(--bad);">*</span></label><input id="empName" value="'+(isEdit?esc(rec.getAttribute('data-name')):'')+'"></div>'+
+      '<div class="field"><label>Role</label><select id="empRole"'+(owner?' disabled':'')+'>'+
+        '<option value="employee"'+(isEdit&&rec.getAttribute('data-role')!=='admin'?' selected':'')+'>Warehouse Employee</option>'+
+        '<option value="admin"'+(isEdit&&rec.getAttribute('data-role')==='admin'?' selected':'')+'>Administrator</option>'+
+      '</select>'+(owner?'<div class="small muted" style="margin-top:5px;">The owner account is always an administrator.</div>':'')+'</div>'+
+      (isEdit&&!owner? '<label class="row small chk" style="gap:7px;cursor:pointer;"><input type="checkbox" id="empActive" '+(rec.getAttribute('data-active')!=='false'?'checked':'')+' style="width:auto;"> Active (uncheck to hide from the login list)</label>' : '')+
+      (isEdit? '<div class="small muted">Past scans stay in the audit trail under the old name — the record of who did what is never rewritten.</div>':'')+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn" id="cancelEmpModal">Cancel</button><button class="btn btn-primary" id="saveEmpModal">'+(isEdit?'Save':'Add')+'</button></div>'+
+    '</div></div>');
+  $('#closeEmpModal').onclick=$('#cancelEmpModal').onclick=function(){ closeModal('empModalBack'); };
+  setTimeout(function(){ try{ $('#empName').focus(); }catch(e){} }, 60);
+  $('#saveEmpModal').addEventListener('click', function(){
+    var name=$('#empName').value.trim(); if(!name){ toast('Name required.','bad'); return; }
+    var clash=activeRoster().find(function(e){
+      return e!==rec && e.getAttribute('data-name').toLowerCase()===name.toLowerCase();
+    });
+    if(clash){ toast('Someone with that name is already on the list.','bad'); return; }
+    var role=owner? 'admin' : $('#empRole').value;
+    if(isEdit){
+      var was=rec.getAttribute('data-name');
+      rec.setAttribute('data-name', name);
+      rec.setAttribute('data-role', role);
+      var act=$('#empActive'); if(act) rec.setAttribute('data-active', act.checked?'true':'false');
+      if(currentUser && currentUser.id===rec.getAttribute('data-rid')){
+        currentUser.name=name; currentUser.role=role;
+        try{ sessionStorage.setItem('dr_user', JSON.stringify(currentUser)); }catch(e){}
+      }
+      appendAuditRaw('edit-user', currentUser.name+' updated '+(was===name? name : was+' → '+name)+' ('+role+')');
+    } else {
+      var el=document.createElement('div'); el.className='employee';
+      el.setAttribute('data-rid',uid()); el.setAttribute('data-name',name); el.setAttribute('data-role',role);
+      el.setAttribute('data-active','true'); el.setAttribute('data-owner','false');
+      rosterEl.appendChild(el);
+      appendAuditRaw('add-user', currentUser.name+' added employee '+name+' ('+role+')');
+    }
+    closeModal('empModalBack'); render();
+  });
 }
 function wireUsersView(){
   var cs2=$('#btnCloudSave2'); if(cs2) cs2.addEventListener('click', function(){ saveToCloud(); });
@@ -3872,6 +3983,7 @@ function wireUsersView(){
     appendAuditRaw('edit-letterhead', currentUser.name+' updated the invoice letterhead');
     toast('Letterhead saved — it appears on every export.');
   });
+  var uc=$('#btnUseCloud'); if(uc) uc.addEventListener('click', useCloudCopy);
   var eb=$('#btnExportBackup'); if(eb) eb.addEventListener('click', exportBackup);
   var rf=$('#restoreFile'); if(rf) rf.addEventListener('change', function(ev){ importBackup(ev.target.files[0]); ev.target.value=''; });
   paintSaveStatus(); paintCloudStatus();
@@ -3882,26 +3994,9 @@ function wireUsersView(){
     appendAuditRaw('security', currentUser.name+' updated the team PIN');
     toast('Team PIN updated.');
   });
-  $('#btnAddEmp').addEventListener('click', function(){
-    document.body.insertAdjacentHTML('beforeend','' +
-      '<div class="modal-back" id="empModalBack"><div class="modal" style="max-width:400px;">'+
-      '<div class="modal-head"><h3 style="margin:0;flex:1;">Add employee</h3><button class="btn-ghost" id="closeEmpModal">✕</button></div>'+
-      '<div class="modal-body col" style="gap:12px;">'+
-        '<div class="field"><label>Name</label><input id="empName"></div>'+
-        '<div class="field"><label>Role</label><select id="empRole"><option value="employee">Warehouse Employee</option><option value="admin">Administrator</option></select></div>'+
-      '</div>'+
-      '<div class="modal-foot"><button class="btn" id="cancelEmpModal">Cancel</button><button class="btn btn-primary" id="saveEmpModal">Add</button></div>'+
-      '</div></div>');
-    $('#closeEmpModal').onclick=$('#cancelEmpModal').onclick=function(){ closeModal('empModalBack'); };
-    $('#saveEmpModal').addEventListener('click', function(){
-      var name=$('#empName').value.trim(); if(!name){ toast('Name required.','bad'); return; }
-      var el=document.createElement('div'); el.className='employee';
-      el.setAttribute('data-rid',uid()); el.setAttribute('data-name',name); el.setAttribute('data-role',$('#empRole').value);
-      el.setAttribute('data-active','true'); el.setAttribute('data-owner','false');
-      rosterEl.appendChild(el);
-      appendAuditRaw('add-user', currentUser.name+' added employee '+name+' ('+$('#empRole').value+')');
-      closeModal('empModalBack'); render();
-    });
+  $('#btnAddEmp').addEventListener('click', function(){ openEmployeeModal(null); });
+  $$('[data-edit-emp]').forEach(function(b){
+    b.addEventListener('click', function(){ openEmployeeModal(findEmployee(b.getAttribute('data-edit-emp'))); });
   });
   $$('[data-toggle-role]').forEach(function(b){ b.addEventListener('click', function(){
     var e=findEmployee(b.getAttribute('data-toggle-role'));

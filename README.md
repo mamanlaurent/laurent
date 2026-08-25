@@ -255,6 +255,19 @@ in the tab's memory, and a spurious "read-only, ask the owner for access" banner
 because the code treated the failing sync as a permission problem. If you are reaching for
 `sync()` or `edit()`, check which kind of artifact this is first.
 
+### The divergence trap
+
+The newer of the two copies wins on boot. That silently strands a device: make one change
+on the phone after the computer's cloud save and the phone's copy is newer *forever* — it
+will never show the computer's work, and nothing on screen says so. That is what "it
+doesn't seem to be synced" actually is.
+
+So `loadLocalIfNewer()` keeps the cloud copy in memory (`cloudDbHtml`), sets
+`usingLocalCopy`, and Users & Security shows both timestamps plus **Use the cloud copy
+instead**, which discards the device copy behind a typed REPLACE. It does not make sync
+automatic — it makes the state visible and recoverable, which is as far as a classic
+artifact goes.
+
 ### Consequences to design around
 
 - **One active device at a time.** Cloud save is last-writer-wins at page granularity.
