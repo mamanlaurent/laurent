@@ -204,6 +204,13 @@ file into **Protected View** until "Enable Editing" is clicked — that hits the
   fully editable, and Save As turns it into a genuine `.xlsx`. It carries the letterhead,
   the bordered value cells and the red `PERMIT #:`. A CSV cannot carry any of that.
 
+  **Do not give it a double extension.** It was named `….xls.html` so that deleting `.html`
+  left a working `.xls` — but Windows hides known extensions by default, so it displayed as
+  `….xls` and read as an Excel file that inexplicably opened in a browser. One honest
+  `.html` and "right-click → Open with → Excel" is the instruction that survives contact
+  with a real Windows machine. Printing needs no Excel at all: the browser view prints
+  exactly as it looks.
+
   **It must be ONE flat table.** Nested tables get mangled by Excel, and a `<thead>` is
   hoisted above everything — which put the grey column-header strip above the letterhead.
   Every row therefore has exactly `N` cells, the letterhead sits in the same columns as the
