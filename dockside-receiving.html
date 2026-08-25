@@ -1125,7 +1125,8 @@ function parseQtyCell(v){
   var t=String(v==null?'':v).trim();
   if(!t) return 0;
   t=t.replace(/,/g,'');
-  var m=t.match(/-?\d+(?:\.\d+)?/);
+  // the exponent is part of the number: "4.1666666E-2" is 0.0417, not 4.17
+  var m=t.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/);
   if(!m) return 0;
   var n=parseFloat(m[0]);
   return isFinite(n)? n : 0;
@@ -1134,11 +1135,22 @@ function parseQtyCell(v){
 function cellIsBareNumber(v){
   var t=String(v==null?'':v).trim();
   if(!t) return true;                 // blank is allowed (merged cells)
-  return /^-?[\d,]+(?:\.\d+)?$/.test(t);
+  return /^-?[\d,]+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(t);
 }
-function columnSum(rows, idx, headerIdx){
+/* A slip ends with its own grand-total row: 1235 boxes, 26.78 pallets, no description.
+   Counting it alongside the lines doubles every figure — 2,470 boxes, 54 pallets. Only
+   rows that carry a description become lines, so only those rows are ever summed. */
+function isLineRow(rows, r, descIdx){
+  var row=rows[r]||[];
+  if(descIdx==null || descIdx<0) return true;
+  return String(row[descIdx]==null?'':row[descIdx]).trim()!=='';
+}
+function columnSum(rows, idx, headerIdx, descIdx){
   var s=0;
-  for(var r=headerIdx+1;r<rows.length;r++) s+=parseQtyCell((rows[r]||[])[idx]);
+  for(var r=headerIdx+1;r<rows.length;r++){
+    if(!isLineRow(rows,r,descIdx)) continue;
+    s+=parseQtyCell((rows[r]||[])[idx]);
+  }
   return s;
 }
 function dataRowCount(rows, headerIdx){ return Math.max(rows.length-headerIdx-1, 1); }
@@ -1654,7 +1666,7 @@ function renderImportMapper(){
       // and never offer unit totals or weights, which are not box counts
       if(numericOnly && isIgnoredColumn(rows,c,hi)) continue;
       var label=colLabel(c, head, rows, hi);
-      if(numericOnly) label+='  →  adds up to '+columnSum(rows,c,hi).toLocaleString();
+      if(numericOnly) label+='  →  adds up to '+columnSum(rows,c,hi,importState.desc).toLocaleString();
       out+='<option value="'+c+'"'+(sel===c?' selected':'')+'>'+esc(label)+'</option>';
     }
     return out;
@@ -1856,6 +1868,7 @@ function wireNewShipmentModal(){
         if(importState.rows && importState.palletCount>=0){
           var palTot=0, extraTot=0;
           for(var pr=importState.headerIdx+1; pr<importState.rows.length; pr++){
+            if(!isLineRow(importState.rows, pr, importState.desc)) continue;   // skip the slip's own total row
             palTot+=parseQtyCell((importState.rows[pr]||[])[importState.palletCount]);
             if(importState.extraBoxes>=0) extraTot+=parseQtyCell((importState.rows[pr]||[])[importState.extraBoxes]);
           }

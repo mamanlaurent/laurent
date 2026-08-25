@@ -58,6 +58,10 @@ found against a real packing slip.
 
 **The customer's standard slip (colour-coded by them):**
 
+The real container 5665 lives in the repo as `testdata-slip-5665.xlsx`, with
+`test-slip5665.js` asserting its exact numbers — 20 lines, 1,235 boxes, 27 pallets,
+195 loose. Run it against any import change.
+
 | Colour | Header | Meaning |
 |---|---|---|
 | Yellow | *(merged, unlabelled)* | Total boxes for a whole description group (106 = 47+48+11) |
@@ -79,6 +83,19 @@ the stored row (`data-raw`) and header (`data-srcheaders`), and out of the CSV e
 including for shipments imported before the exclusion existed, which are filtered again at
 export time. The import mapper names the columns it left out, so the operator can see it
 happened.
+
+**The slip's own grand-total row is not a line.** It carries the totals and no
+description — 1,235 boxes, 26.78 pallets. Aggregating over every row after the header
+counted it twice: the Quantity dropdown advertised 2,470 boxes and the shipment was created
+with 54 pallets. `columnSum()` and the pallet/extra sums now run over `isLineRow()` — rows
+carrying a description, the same rows that become lines — so a slip's own totals can never
+inflate the figures derived from it.
+
+**Excel writes small decimals in exponent form.** `0.041666` is stored as
+`"4.1666666E-2"`, and `parseQtyCell()` matched only `-?\d+(\.\d+)?` — taking `4.1666666`
+and dropping the `E-2`. Every fractional pallet figure came out ~100x too big, turning 26.78
+pallets into 70.75. Both `parseQtyCell()` and `cellIsBareNumber()` now accept the exponent.
+Anything parsing a spreadsheet number must.
 
 **Three ways this went wrong before, all now blocked:**
 
