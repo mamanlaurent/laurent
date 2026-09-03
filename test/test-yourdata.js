@@ -28,8 +28,17 @@ let fails=[]; function ok(c,m){console.log((c?'  ok  ':'  FAIL')+'  '+m); if(!c)
  ok(/NEEDMAJ/.test(h),'letterhead shows NEEDMAJ, not the client');
  const sub=await pg.evaluate(()=>document.querySelector('#settings').getAttribute('data-companysub')||'');
  ok(!sub || h.indexOf(sub)>-1,'your letterhead second line prints as you typed it: "'+sub+'"');
- ok(/Goodtime/.test(h),'the client Goodtime appears under Ship To');
- ok(/HA-5656/.test(h),'their Customer ID carries through');
+ // read the real client off the shipment rather than hardcoding a name that can be edited
+ const info=await pg.evaluate(()=>{
+   const sh=document.querySelector('#shipments .shipment');
+   const name=sh.getAttribute('data-client')||'';
+   const c=[...document.querySelectorAll('#clients .client')].find(x=>x.getAttribute('data-name')===name);
+   return {name:name, cust:(c&&c.getAttribute('data-custid'))||''};
+ });
+ ok(info.name && h.indexOf(info.name)>-1,'the client "'+info.name+'" appears under Ship To');
+ ok(!info.cust || h.indexOf(info.cust)>-1,'their Customer ID carries through ("'+info.cust+'")');
+ const cats=await pg.evaluate(()=>document.querySelectorAll('#priceList .pcat').length);
+ console.log('       price-list categories loaded: '+cats);
  require('fs').writeFileSync('yours-preview.html',h);
  ok(errs.length===0,'no page errors'+(errs.length?': '+errs[0]:''));
  await ctx.close();
