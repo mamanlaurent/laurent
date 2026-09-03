@@ -1217,7 +1217,7 @@ function looseDateToISO(v){
 }
 /* scan the block above the table for "No:", "Container:", "Date:" style label/value pairs */
 function sniffHeaderFields(rows, headerIdx){
-  var out={po:'', container:'', date:'', supplier:'', invno:'', custid:'', permit:''};
+  var out={po:'', container:'', date:'', supplier:'', invno:'', custid:'', permit:'', impno:'', consignee:''};
   for(var r=0;r<headerIdx;r++){
     var row=rows[r]||[];
     for(var c=0;c<row.length;c++){
@@ -1225,14 +1225,23 @@ function sniffHeaderFields(rows, headerIdx){
       if(!label) continue;
       var val='';
       for(var n=c+1;n<Math.min(row.length,c+4);n++){ if(String(row[n]||'').trim()){ val=String(row[n]).trim(); break; } }
+      // "Ship To:" labels the name on the row BELOW it, in the same column
+      var below=String(((rows[r+1]||[])[c])==null?'':(rows[r+1]||[])[c]).trim();
+      if(!out.consignee && (label==='shipto'||label==='shipto:')){
+        out.consignee = below || val;   // the name is under the label, not beside it
+        continue;
+      }
       if(!val) continue;
-      if(!out.invno && (label==='no'||label==='nos'||label==='invoice'||label==='invoiceno')) out.invno=val;
+      // an importer's slip labels its own reference "Number"; it becomes our Customer ID
+      if(!out.impno && (label==='number'||label==='packingslipnumber')) out.impno=val;
+      else if(!out.invno && (label==='no'||label==='nos'||label==='invoice'||label==='invoiceno')) out.invno=val;
       else if(!out.po && (label==='pono'||label==='ponumber'||label==='packingslip')) out.po=val;
       else if(!out.custid && (label==='customerid'||label==='custid'||label==='customerno')) out.custid=val;
       else if(!out.permit && label.indexOf('permit')>-1) out.permit=val;
       else if(!out.container && label.indexOf('container')>-1) out.container=val;
       else if(!out.date && label==='date') out.date=looseDateToISO(val);
-      else if(!out.supplier && (label.indexOf('supplier')>-1||label.indexOf('vendor')>-1)) out.supplier=val;
+      else if(!out.supplier && (label.indexOf('supplier')>-1||label.indexOf('vendor')>-1||label==='via')) out.supplier=val;
+
     }
   }
   return out;
@@ -1390,44 +1399,60 @@ async function importPriceList(file){
    the invoice's 9 categories with every quantity reconciling, and the pallet split
    reproduced their workbook to the digit. */
 var PL_STOPWORDS = {flavored:1, flavor:1, flavoured:1};
-function plBag(s){
+function plToks(s){
   return String(s||'').toLowerCase().replace(/&/g,'and')
     .replace(/[^a-z0-9./]+/g,' ').split(' ')
     .filter(function(t){ return t && !PL_STOPWORDS[t]; });
 }
-/* Jaccard overlap of the significant words. Deliberately not an ordered match: the slip
-   inserts the flavour mid-description, and the trailing price code sometimes differs by a
-   digit between the slip and the list. */
-function plSimilarity(a, b){
-  var A={}, B={}, n=0, u=0;
-  plBag(a).forEach(function(t){ A[t]=1; });
-  plBag(b).forEach(function(t){ B[t]=1; });
-  for(var k in A){ if(B[k]) n++; u++; }
-  for(var k2 in B){ if(!A[k2]) u++; }
-  return u? n/u : 0;
+/* The trailing "2/1.49", "2/NP", "No Price" is the price code. It is what separates two
+   otherwise identical categories — Sweetwoods 720 ct at 2/1.49 and at 2/1.69 are priced
+   and palletised differently — so it must discriminate. But the slip and the list do not
+   always agree on it to the digit (the slip says 3/1.29 where the list still says 3/1.19),
+   so it cannot be required outright. Hence two passes. */
+var PL_CODE = /^\d+\/(?:np|\$?\d+(?:\.\d+)?)$/;
+function plCode(s){
+  var t=plToks(s);
+  for(var i=t.length-1;i>=0;i--) if(PL_CODE.test(t[i])) return t[i];
+  var j=t.join(' ');
+  if(/\bno price$/.test(j) || /\bnp$/.test(j)) return 'noprice';
+  return '';
+}
+/* Every significant word of the alias must appear in the description. A word the alias has
+   and the description lacks — "Dark", "Limited", "California", "Consumer Pack" — means a
+   different category, which is what stops "Creamy Peach (Limited Edition)" being pulled
+   into the Dark Limited Edition group. Extra words in the description are the flavour. */
+function plFits(alias, desc){
+  var D={}, n=0;
+  plToks(desc).forEach(function(t){ D[t]=1; });
+  var A=plToks(alias).filter(function(t){ return !PL_CODE.test(t); });
+  if(plCode(alias)==='noprice') A=A.filter(function(t){ return t!=='no' && t!=='price'; });
+  for(var i=0;i<A.length;i++){ if(!D[A[i]]) return -1; n++; }
+  return n;                       // longer alias wins: it is the more specific category
 }
 function allPriceCats(){ return priceListEl? $$('.pcat', priceListEl) : []; }
 function catAliases(rec){
   try{ return JSON.parse(rec.getAttribute('data-aliases')||'[]'); }catch(e){ return []; }
 }
-/* Every alias of every category, flattened — the candidate list a slip line is matched to. */
 function priceCategoryIndex(){
   var out=[];
   allPriceCats().forEach(function(rec){
-    catAliases(rec).forEach(function(a, i){
-      out.push({rec:rec, alias:a, idx:i});
-    });
+    catAliases(rec).forEach(function(a, i){ out.push({rec:rec, alias:a, idx:i}); });
   });
   return out;
 }
-var PL_MATCH_FLOOR = 0.5;   // below this we do not guess — the operator is asked
 function matchPriceCategory(desc){
-  var idx=priceCategoryIndex(), best=null, bestS=0;
-  idx.forEach(function(c){
-    var s=plSimilarity(c.alias, desc);
-    if(s>bestS){ bestS=s; best=c; }
-  });
-  return (best && bestS>=PL_MATCH_FLOOR) ? {cat:best, score:bestS} : null;
+  var idx=priceCategoryIndex(), dc=plCode(desc);
+  for(var pass=0; pass<2; pass++){
+    var best=null, bestN=-1;
+    for(var i=0;i<idx.length;i++){
+      var c=idx[i];
+      if(pass===0 && plCode(c.alias)!==dc) continue;   // first pass: the codes must agree
+      var n=plFits(c.alias, desc);
+      if(n>bestN){ bestN=n; best=c; }
+    }
+    if(best && bestN>0) return {cat:best, score:bestN};
+  }
+  return null;
 }
 /* Collapse a slip's flavour rows into the categories the invoice will bill. Rows that
    match nothing are kept as their own group and flagged rather than silently dropped —
@@ -1977,6 +2002,13 @@ function wireNewShipmentModal(){
       var sniffed=sniffHeaderFields(rows, importState.headerIdx);
       if(sniffed.po && !$('#nsPO').value) $('#nsPO').value=sniffed.po;
       if(sniffed.invno && $('#nsInvNo') && !$('#nsInvNo').value) $('#nsInvNo').value=sniffed.invno;
+      // Their reference becomes ours: <consignee initials>-<importer number>, e.g. HA-5737
+      if(sniffed.impno){
+        importState.impno=sniffed.impno;
+        importState.consignee=sniffed.consignee||'';
+        var pre=(sniffed.consignee||'').replace(/[^A-Za-z ]/g,'').trim().slice(0,2).toUpperCase() || 'HA';
+        if($('#nsCustId') && !$('#nsCustId').value) $('#nsCustId').value=pre+'-'+sniffed.impno;
+      }
       if(sniffed.custid && $('#nsCustId') && !$('#nsCustId').value) $('#nsCustId').value=sniffed.custid;
       // Customer ID and Permit # live on the client — carry them across on first sight
       importState.sniffedClient={custid:sniffed.custid, permit:sniffed.permit};
@@ -2006,6 +2038,8 @@ function wireNewShipmentModal(){
       'data-rid':id, 'data-client':client, 'data-container':$('#nsContainer').value.trim(),
       'data-po':$('#nsPO').value.trim(), 'data-date':$('#nsDate').value||todayStr(),
       'data-invno':($('#nsInvNo')&&$('#nsInvNo').value.trim())||'',
+      'data-custid':($('#nsCustId')&&$('#nsCustId').value.trim())||'',
+      'data-impno':(importState.impno||''), 'data-importerto':(importState.consignee||''),
       'data-supplier':$('#nsSupplier').value.trim(), 'data-notes':$('#nsNotes').value.trim(),
       'data-status':'Open', 'data-pallets':'0', 'data-palletnotes':'',
       'data-createdby':currentUser.name, 'data-createdat':new Date().toISOString(),
@@ -2833,7 +2867,7 @@ function openEditHeaderModal(sh){
       '<div class="field"><label>Container #</label><input id="ehContainer" value="'+esc(sh.getAttribute('data-container'))+'"></div>'+
       '<div class="field"><label>Packing Slip / PO #</label><input id="ehPO" value="'+esc(sh.getAttribute('data-po'))+'"></div>'+
       '<div class="field"><label>Invoice No.</label><input id="ehInvNo" value="'+esc(sh.getAttribute('data-invno')||'')+'" placeholder="Prints as \'No:\'"></div>'+
-      '<div class="field"><label>Customer ID</label><input id="ehCustId" value="'+esc(clientField(sh.getAttribute('data-client'),'data-custid'))+'" placeholder="Saved on the client"></div>'+
+      '<div class="field"><label>Customer ID</label><input id="ehCustId" value="'+esc((sh.getAttribute('data-custid')||'').trim()||clientField(sh.getAttribute('data-client'),'data-custid'))+'" placeholder="e.g. HA-5737"></div>'+
       '<div class="field"><label>Permit #</label><input id="ehPermit" value="'+esc(clientField(sh.getAttribute('data-client'),'data-permit'))+'" placeholder="Saved on the client"></div>'+
       '<div class="field"><label>Date</label><input id="ehDate" type="date" value="'+esc(sh.getAttribute('data-date'))+'"></div>'+
       '<div class="field"><label>Supplier</label><input id="ehSupplier" value="'+esc(sh.getAttribute('data-supplier'))+'"></div>'+
@@ -2850,11 +2884,9 @@ function openEditHeaderModal(sh){
     sh.setAttribute('data-po',$('#ehPO').value.trim());
     sh.setAttribute('data-invno',$('#ehInvNo').value.trim());
     // Customer ID and Permit # belong to the client, so editing them here updates the client
+    sh.setAttribute('data-custid', $('#ehCustId').value.trim());
     var clRec=newClient? findClientByName(newClient) : null;
-    if(clRec){
-      clRec.setAttribute('data-custid', $('#ehCustId').value.trim());
-      clRec.setAttribute('data-permit', $('#ehPermit').value.trim());
-    }
+    if(clRec) clRec.setAttribute('data-permit', $('#ehPermit').value.trim());
     sh.setAttribute('data-date',$('#ehDate').value||todayStr());
     sh.setAttribute('data-supplier',$('#ehSupplier').value.trim());
     sh.setAttribute('data-notes',$('#ehNotes').value.trim());
@@ -3481,6 +3513,123 @@ function openSkuModal(rec){
   });
 }
 
+/* ---------------------------------------------------------------- the four worksheets
+   What the office produces from one importer shipment. The header on all four is Needmaj's
+   own — the importer's letterhead is replaced, its container and PO carried across, the
+   customer taken from the client record, and the reference kept as <prefix>-<importer no>
+   so the shipment can still be tied back to the importer's paperwork. */
+function shipmentRate(sh){
+  // Hannacan shipments price at the HA rate; everything else at ALL
+  var ha=parseFloat(settingsEl.getAttribute('data-harate')||'0.022');
+  var all=parseFloat(settingsEl.getAttribute('data-allrate')||'0.02');
+  var via=(sh.getAttribute('data-supplier')||'')+' '+(sh.getAttribute('data-custid')||'')+' '+(sh.getAttribute('data-importerto')||'');
+  return /hannacan|hannacun/i.test(via) ? {rate:ha, label:'HA'} : {rate:all, label:'ALL'};
+}
+var NEEDMAJ_MARKUP = 0.5275;      // (importer cost + 1) x 1.5275 = the Needmaj case cost
+function round2(n){ return Math.round((n+Number.EPSILON)*100)/100; }
+function pricedBreakdown(sh){
+  var groups=shipmentBreakdown(sh);
+  var r=shipmentRate(sh);
+  var ov={}; try{ ov=JSON.parse(sh.getAttribute('data-price')||'{}'); }catch(e){}
+  groups.forEach(function(g){
+    var listCost = g.rec? parseQtyCell(g.rec.getAttribute('data-caseinv')) : 0;
+    g.listCost=listCost;
+    g.cost = (ov[g.key]!=null && ov[g.key]!=='') ? parseQtyCell(ov[g.key]) : listCost;
+    g.costOverridden = ov[g.key]!=null && ov[g.key]!=='' && parseQtyCell(ov[g.key])!==listCost;
+    g.unit = round2(g.cost*(1+r.rate));            // tab 3
+    g.needmaj = round2((g.cost+1)*(1+NEEDMAJ_MARKUP)); // tab 4
+    g.lineHA = round2(g.cases*g.unit);
+    g.lineCustomer = round2(g.cases*g.needmaj);
+  });
+  return {groups:groups, rate:r};
+}
+/* tab 1 — the importer's slip under Needmaj's letterhead */
+function tabPackingSlip(sh){
+  var rows=invoiceHeaderRows(sh);
+  rows.push(['','Quantity of Master Cases','Description','Units Quantity','Net Weight Per Case (lbs)','Gross Weight Per Case (lbs)']);
+  var lines=shipmentLines(sh), c=0,u=0,n=0,gr=0;
+  lines.forEach(function(l){
+    var cases=parseInt(l.getAttribute('data-expected')||'0',10);
+    var un=parseQtyCell(l.getAttribute('data-units')), ne=parseQtyCell(l.getAttribute('data-net')), g2=parseQtyCell(l.getAttribute('data-gross'));
+    c+=cases; u+=un; n+=ne; gr+=g2;
+    rows.push(['',cases,l.getAttribute('data-desc')||'',un||'',ne||'',g2||'']);
+  });
+  rows.push([]);
+  rows.push(['',c,'',u,round2(n),round2(gr)]);
+  return rows;
+}
+/* tab 2 — the same lines grouped, with the pallet split */
+function tabBreakdown(sh){
+  var groups=shipmentBreakdown(sh);
+  var rows=invoiceHeaderRows(sh);
+  rows.push(['','Quantity of Master Cases','Description','Units Quantity','Number of pallets','Extra']);
+  var palTot=0, caseTot=0;
+  groups.forEach(function(g){
+    caseTot+=g.cases; palTot+=g.pallets||0;
+    g.lines.forEach(function(l,i){
+      rows.push([ i===0? g.cases : '', l.cases, l.desc,
+                  i===0? (g.perPallet||'') : '',
+                  i===0? (g.perPallet? g.pallets : '') : '',
+                  i===0? (g.perPallet? g.extra : '') : '' ]);
+    });
+  });
+  rows.push([]);
+  rows.push([caseTot, caseTot, '', '', round2(palTot), '']);
+  return rows;
+}
+/* tab 3 — what Needmaj is billed, at the HA or ALL rate */
+function tabInvoiceCost(sh){
+  var pb=pricedBreakdown(sh), rows=invoiceHeaderRows(sh);
+  rows.push(['','Quantity of Master Cases','Description','Unit Price','Line Total']);
+  var cases=0, sub=0, i=1;
+  pb.groups.forEach(function(g){
+    if(!g.matched) return;
+    cases+=g.cases; sub+=g.lineHA;
+    rows.push([i++, g.cases, g.label, g.unit, g.lineHA]);
+  });
+  rows.push([]);
+  rows.push(['', cases, '', 'SUB TOTAL', round2(sub)]);
+  feeRows(sh,'cost').forEach(function(f){ rows.push(['','','',f[0],f[1]]); });
+  rows.push(['', '', '', 'TOTAL '+pb.rate.label, round2(sub+feeTotal(sh,'cost'))]);
+  return rows;
+}
+/* tab 4 — what the customer is billed */
+function tabInvoiceCustomer(sh){
+  var pb=pricedBreakdown(sh), rows=invoiceHeaderRows(sh);
+  rows.push(['','Quantity of Master Cases','Description','Unit Price Delivered to Door','Line Total']);
+  var cases=0, sub=0, i=1;
+  pb.groups.forEach(function(g){
+    if(!g.matched) return;
+    cases+=g.cases; sub+=g.lineCustomer;
+    rows.push([i++, g.cases, g.label, g.needmaj, g.lineCustomer]);
+  });
+  rows.push([]);
+  rows.push(['', cases, '', 'SUB TOTAL', round2(sub)]);
+  feeRows(sh,'cust').forEach(function(f){ rows.push(['','','',f[0],f[1]]); });
+  rows.push(['', '', '', 'GRAND TOTAL', round2(sub+feeTotal(sh,'cust'))]);
+  return rows;
+}
+/* The fees that arrive later, when the real invoice lands. Stored per shipment so the
+   figures can be typed in on a second visit and both invoices finalise. */
+var FEE_FIELDS=[['tariffs','TARIFFS'],['fetcigars','FET CIGARS'],['fetwraps','FET WRAPS'],
+                ['hmf','HMF'],['fda','EST FDA FEE'],['broker','BROKER FEE'],
+                ['shipping','SHIPPING & HANDLING'],['freight','FREIGHT'],
+                ['bank','BANK FEES'],['wire','WIRE FEES']];
+function shipmentFees(sh){
+  try{ return JSON.parse(sh.getAttribute('data-fees')||'{}'); }catch(e){ return {}; }
+}
+function feeRows(sh, which){
+  var f=shipmentFees(sh)[which]||{}, out=[];
+  FEE_FIELDS.forEach(function(p){
+    var v=parseQtyCell(f[p[0]]);
+    if(v) out.push([p[1], round2(v)]);
+  });
+  return out;
+}
+function feeTotal(sh, which){
+  var t=0; feeRows(sh,which).forEach(function(r){ t+=r[1]; }); return round2(t);
+}
+
 /* The category and pallet breakdown for one shipment. Groups are derived on the fly from
    the price list, so loading a corrected list re-groups every shipment without editing
    any of them. Only the operator's boxes-per-pallet overrides are stored. */
@@ -3508,45 +3657,88 @@ function shipmentBreakdown(sh){
 }
 function renderBreakdownPanel(sh){
   if(!allPriceCats().length) return '';
-  var groups=shipmentBreakdown(sh);
+  var pb=pricedBreakdown(sh), groups=pb.groups;
   if(!groups.length) return '';
   var editable = sh.getAttribute('data-status')!=='Completed' && isAdmin();
-  var palTot=0, caseTot=0, unmatched=0;
+  var palTot=0, caseTot=0, unmatched=0, subCost=0, subCust=0;
   var rows=groups.map(function(g){
     caseTot+=g.cases; palTot+=g.pallets||0;
-    if(!g.matched) unmatched++;
+    if(!g.matched){ unmatched++; }
+    else { subCost+=g.lineHA; subCust+=g.lineCustomer; }
     return '<tr'+(g.matched?'':' style="background:var(--warn-bg);"')+'>'+
       '<td><div>'+esc(g.label)+'</div>'+
         '<div class="small muted" style="margin-top:2px;">'+g.lines.length+' flavour'+(g.lines.length===1?'':'s')+
         (g.matched? '' : ' · <strong style="color:var(--warn);">not on the price list</strong>')+
-        (g.overridden? ' · <span style="color:var(--accent);">#/PLT changed from '+esc(String(g.listPerPallet))+'</span>' : '')+
+        (g.overridden? ' · <span style="color:var(--accent);">#/PLT was '+esc(String(g.listPerPallet))+'</span>' : '')+
+        (g.costOverridden? ' · <span style="color:var(--accent);">cost was '+esc(String(g.listCost))+'</span>' : '')+
         '</div></td>'+
       '<td class="tab-num" style="font-weight:700;">'+g.cases+'</td>'+
       '<td>'+(editable
         ? '<input class="tab-num qty-edit" data-plt-key="'+esc(g.key)+'" type="number" min="0" step="1" value="'+esc(String(g.perPallet||''))+'" placeholder="'+esc(String(g.listPerPallet||''))+'">'
         : '<span class="tab-num">'+esc(String(g.perPallet||'—'))+'</span>')+'</td>'+
       '<td class="tab-num">'+(g.perPallet? g.pallets.toFixed(2) : '—')+'</td>'+
-      '<td class="tab-num">'+(g.perPallet? g.full : '—')+'</td>'+
       '<td class="tab-num">'+(g.perPallet? g.extra : '—')+'</td>'+
+      '<td>'+(editable
+        ? '<input class="tab-num qty-edit" data-cost-key="'+esc(g.key)+'" type="number" min="0" step="0.01" value="'+esc(String(g.cost||''))+'" placeholder="'+esc(String(g.listCost||''))+'">'
+        : '<span class="tab-num">'+(g.cost? g.cost.toFixed(2):'—')+'</span>')+'</td>'+
+      '<td class="tab-num">'+(g.unit? g.unit.toFixed(2):'—')+'</td>'+
+      '<td class="tab-num">'+(g.needmaj? g.needmaj.toFixed(2):'—')+'</td>'+
     '</tr>';
   }).join('');
 
+  var feeCard = function(which, title, total){
+    var f=shipmentFees(sh)[which]||{};
+    return '<div class="field" style="min-width:250px;flex:1;">'+
+      '<label>'+esc(title)+'</label>'+
+      '<div class="grid grid-2" style="gap:6px;">'+
+        FEE_FIELDS.map(function(p){
+          return '<div class="row" style="gap:6px;"><span class="small muted" style="flex:1;min-width:0;">'+esc(p[1])+'</span>'+
+            '<input class="tab-num qty-edit" style="width:88px;" data-feeset="'+which+'" data-fee="'+p[0]+'" type="number" step="0.01" value="'+esc(String(f[p[0]]||''))+'"'+(editable?'':' disabled')+'></div>';
+        }).join('')+
+      '</div>'+
+      '<div class="small" style="margin-top:6px;font-weight:700;">Fees total '+total.toFixed(2)+'</div>'+
+    '</div>';
+  };
+
+  var costTotal=round2(subCost+feeTotal(sh,'cost'));
+  var custTotal=round2(subCust+feeTotal(sh,'cust'));
+
   return '<div class="d-breakdown card" style="margin-bottom:18px;">'+
     '<div class="pad" style="padding-bottom:0;">'+
-      '<div class="row wrap"><h3 style="margin:0 0 2px;">Category &amp; pallet breakdown</h3><div class="spacer"></div>'+
-        '<button class="btn btn-sm" id="btnExportBreakdown">⇩ Export breakdown</button></div>'+
+      '<div class="row wrap"><h3 style="margin:0 0 2px;">Importer breakdown — the four tabs</h3><div class="spacer"></div>'+
+        '<button class="btn btn-primary btn-sm" id="btnExportTabs">📗 Export all four tabs</button></div>'+
       '<p class="section-sub" style="margin-bottom:12px;">'+groups.length+' categories from '+
-        shipmentLines(sh).length+' slip lines · '+caseTot+' cases · '+palTot.toFixed(2)+' pallets. '+
-        'Boxes per pallet comes from the price list and can be changed here.</p>'+
+        shipmentLines(sh).length+' slip lines · '+caseTot+' cases · '+palTot.toFixed(2)+' pallets · pricing at the <strong>'+
+        pb.rate.label+'</strong> rate (+'+(pb.rate.rate*100).toFixed(1)+'%). '+
+        'Boxes per pallet and the importer cost come from the price list; change either here.</p>'+
     '</div>'+
     (unmatched? '<div class="pad" style="padding-top:0;padding-bottom:12px;"><div class="small" style="background:var(--warn-bg);color:var(--warn);padding:9px 12px;border-radius:7px;font-weight:600;">'+
-      unmatched+' line'+(unmatched===1?'':'s')+' did not match anything on the price list and '+(unmatched===1?'is':'are')+
-      ' shown on '+(unmatched===1?'its':'their')+' own. Add '+(unmatched===1?'it':'them')+' to the price list if '+(unmatched===1?'it belongs':'they belong')+' in a category.'+
+      unmatched+' line'+(unmatched===1?'':'s')+' matched nothing on the price list, so '+(unmatched===1?'it is':'they are')+
+      ' left out of the two invoices. Add '+(unmatched===1?'it':'them')+' to the price list to include '+(unmatched===1?'it':'them')+'.'+
     '</div></div>' : '')+
-    '<div class="table-wrap"><table><thead><tr><th>Category</th><th>Cases</th><th>#/PLT</th><th>Pallets</th><th>Full</th><th>Loose</th></tr></thead><tbody>'+
-    rows+
-    '<tr style="font-weight:800;"><td>TOTAL</td><td class="tab-num">'+caseTot+'</td><td></td><td class="tab-num">'+palTot.toFixed(2)+'</td><td class="tab-num">'+Math.ceil(palTot)+'</td><td></td></tr>'+
+    '<div class="table-wrap"><table><thead><tr>'+
+      '<th>Category</th><th>Cases</th><th>#/PLT</th><th>Pallets</th><th>Loose</th>'+
+      '<th>Importer cost</th><th>'+pb.rate.label+' unit</th><th>Customer unit</th>'+
+    '</tr></thead><tbody>'+rows+
+    '<tr style="font-weight:800;"><td>TOTAL</td><td class="tab-num">'+caseTot+'</td><td></td>'+
+      '<td class="tab-num">'+palTot.toFixed(2)+'</td><td class="tab-num">'+Math.ceil(palTot)+' plt</td><td></td>'+
+      '<td class="tab-num">'+subCost.toFixed(2)+'</td><td class="tab-num">'+subCust.toFixed(2)+'</td></tr>'+
     '</tbody></table></div>'+
+    '<div class="pad">'+
+      '<div class="small muted" style="margin-bottom:10px;">The figures below arrive with the real invoice. Enter them when it lands and both invoices finalise.</div>'+
+      '<div class="row wrap" style="gap:18px;align-items:flex-start;">'+
+        feeCard('cost','Tab 3 — invoice '+pb.rate.label, feeTotal(sh,'cost'))+
+        feeCard('cust','Tab 4 — customer invoice', feeTotal(sh,'cust'))+
+      '</div>'+
+      '<div class="row wrap" style="gap:20px;margin-top:14px;">'+
+        '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Tab 3 total</div>'+
+          '<div class="tab-num" style="font-size:18px;font-weight:800;">'+costTotal.toFixed(2)+'</div></div>'+
+        '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Tab 4 total</div>'+
+          '<div class="tab-num" style="font-size:18px;font-weight:800;">'+custTotal.toFixed(2)+'</div></div>'+
+        '<div><div class="l" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);font-weight:700;">Margin</div>'+
+          '<div class="tab-num" style="font-size:18px;font-weight:800;color:'+(custTotal-costTotal>=0?'var(--ok)':'var(--bad)')+';">'+round2(custTotal-costTotal).toFixed(2)+'</div></div>'+
+      '</div>'+
+    '</div>'+
   '</div>';
 }
 function wireBreakdownPanel(sh){
@@ -3561,27 +3753,95 @@ function wireBreakdownPanel(sh){
       rerenderDetail(sh);
     });
   });
-  var xb=$('#btnExportBreakdown');
-  if(xb) xb.addEventListener('click', function(){ exportBreakdown(sh); });
-}
-/* The breakdown in the customer's own tab-2 column order. */
-async function exportBreakdown(sh){
-  var groups=shipmentBreakdown(sh);
-  var rows=invoiceHeaderRows(sh);
-  rows.push(['','Quantity of Master Cases','Description','Units Quantity','Number of pallets','Extra']);
-  var palTot=0, caseTot=0;
-  groups.forEach(function(g){
-    caseTot+=g.cases; palTot+=g.pallets||0;
-    g.lines.forEach(function(l, i){
-      rows.push([ i===0? g.cases : '', l.cases, l.desc,
-                  i===0? (g.perPallet||'') : '',
-                  i===0? (g.perPallet? g.pallets : '') : '',
-                  i===0? (g.perPallet? g.extra : '') : '' ]);
+  var xb=$('#btnExportTabs');
+  if(xb) xb.addEventListener('click', function(){ exportFourTabs(sh); });
+  $$('[data-fee]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var all=shipmentFees(sh), which=this.getAttribute('data-feeset');
+      all[which]=all[which]||{};
+      var v=this.value.trim();
+      if(v==='') delete all[which][this.getAttribute('data-fee')];
+      else all[which][this.getAttribute('data-fee')]=v;
+      sh.setAttribute('data-fees', JSON.stringify(all));
+      appendAuditRaw('edit-fees', currentUser.name+' updated '+this.getAttribute('data-fee')+' on the '+(which==='cost'?'cost':'customer')+' invoice');
+      rerenderDetail(sh);
     });
   });
-  rows.push([]);
-  rows.push([caseTot, caseTot, '', '', palTot, '']);
-  await downloadCSV('breakdown-'+(sh.getAttribute('data-container')||sh.getAttribute('data-rid'))+'.csv', rows);
+  var pv=$('#btnPriceOverrides');
+  if(pv) pv.addEventListener('click', function(){ togglePriceEdit(sh); });
+  $$('[data-cost-key]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var ov={}; try{ ov=JSON.parse(sh.getAttribute('data-price')||'{}'); }catch(e){}
+      var v=this.value.trim();
+      if(v==='') delete ov[this.getAttribute('data-cost-key')];
+      else ov[this.getAttribute('data-cost-key')]=v;
+      sh.setAttribute('data-price', JSON.stringify(ov));
+      appendAuditRaw('edit-cost', currentUser.name+' set an importer case cost by hand');
+      rerenderDetail(sh);
+    });
+  });
+}
+/* All four worksheets in one go. Each is a separate file: the download system cannot hand
+   over a real multi-sheet .xlsx, so four sheets means four files, each opening in Excel
+   with the letterhead intact. */
+async function exportFourTabs(sh){
+  var base=(sh.getAttribute('data-custid')||sh.getAttribute('data-container')||sh.getAttribute('data-rid'));
+  var pb=pricedBreakdown(sh);
+  var tabs=[
+    ['1-packing-slip', 'Packing Slip', tabPackingSlip(sh)],
+    ['2-breakdown',    'Pallet Breakdown', tabBreakdown(sh)],
+    ['3-invoice-'+pb.rate.label.toLowerCase(), 'Invoice '+pb.rate.label, tabInvoiceCost(sh)],
+    ['4-invoice-customer', 'Customer Invoice', tabInvoiceCustomer(sh)]
+  ];
+  var done=0;
+  for(var i=0;i<tabs.length;i++){
+    var ok=await saveSheet(base+'-'+tabs[i][0]+'.html', tabs[i][1], tabs[i][2], sh);
+    if(ok===false) break;          // the viewer cancelled — stop asking
+    if(ok) done++;
+  }
+  if(done) toast('Saved '+done+' of 4 sheets. Open each in Excel — press ? for how.');
+}
+/* One worksheet, formatted, as an Excel-readable HTML file. */
+async function saveSheet(filename, sheetName, rows, sh){
+  var width=0;
+  rows.forEach(function(r){ if(r.length>width) width=r.length; });
+  width=Math.max(width,6);
+  function cell(v,i){
+    var t=String(v==null?'':v);
+    var cls='';
+    if(/^\d{8,}$/.test(t)) cls=' class="txt"';
+    else if(t!=='' && /^-?[\d.]+$/.test(t)) cls=' class="num"';
+    return '<td'+cls+'>'+esc(t)+'</td>';
+  }
+  var body=rows.map(function(r){
+    var tds='';
+    for(var i=0;i<width;i++) tds+=cell(r[i],i);
+    return '<tr>'+tds+'</tr>';
+  }).join('');
+  var html='<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">'+
+    '<meta name="ProgId" content="Excel.Sheet">'+
+    '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>'+
+    '<x:Name>'+esc(sheetName)+'</x:Name><x:WorksheetOptions>'+
+    '<x:PageSetup><x:Layout x:Orientation="Landscape"/></x:PageSetup>'+
+    '<x:FitToPage/><x:Print><x:FitWidth>1</x:FitWidth><x:FitHeight>0</x:FitHeight><x:ValidPrinterInfo/></x:Print>'+
+    '<x:Selected/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->'+
+    '<title>'+esc(sheetName)+'</title><style>'+
+    'body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;}table{border-collapse:collapse;}'+
+    'td{padding:2px 5px;vertical-align:top;}br{mso-data-placement:same-cell;}'+
+    '.txt{mso-number-format:"\\@";}.num{text-align:right;}'+
+    'col.c0{width:90px;}col.c1{width:150px;}col.c2{width:330px;}col.c3{width:120px;}col.c4{width:130px;}'+
+    '</style></head><body><table><colgroup>'+
+    (function(){ var c=''; for(var i=0;i<width;i++) c+='<col class="c'+Math.min(i,4)+'">'; return c; })()+
+    '</colgroup><tbody>'+body+'</tbody></table></body></html>';
+  var api=null;
+  try{ api=await claude.use('downloads'); }catch(e){}
+  if(!api){ toast('Downloads are not available in this view.','bad'); return false; }
+  try{ await api.save({filename:filename, data:html}); return true; }
+  catch(err){
+    if(err && err.code==='declined') return false;
+    toast('Could not save '+filename+': '+((err&&err.message)||(err&&err.code)||'unknown'),'bad');
+    return null;
+  }
 }
 
 /* ================================================================ PRICE LIST */
@@ -3942,7 +4202,7 @@ function invoiceHeaderFields(sh){
     no: sh.getAttribute('data-invno')||sh.getAttribute('data-po')||'',
     container: sh.getAttribute('data-container')||'',
     date: sh.getAttribute('data-date')||'',
-    custId: (cl&&cl.getAttribute('data-custid'))||'',
+    custId: (sh.getAttribute('data-custid')||'').trim() || (cl&&cl.getAttribute('data-custid'))||'',
     permit: (cl&&cl.getAttribute('data-permit'))||settingVal('data-companypermit'),
     po: sh.getAttribute('data-po')||''
   };

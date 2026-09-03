@@ -43,5 +43,6 @@ under real keystrokes.
 | `test-backup.js` | Backup export → wipe → restore returns everything |
 | `test-sync.js` | Local vs cloud copy divergence, and the way back |
 | `test-asks.js` | Editable employees, Customer ID on shipments |
-| `test-intake.js` | Importer intake: price-list load, the nine categories of container SEGU-522984-8, pallet overrides, breakdown export |
+| `test-intake.js` | Importer intake: price-list load, the nine categories of container SEGU-522984-8, pallet overrides |
+| `test-tabs.js` | Container TEMU-639444-2 end to end: header carried across, nine categories, ALL rate, fees, all four sheets |
 | `test-yourdata.js` | A release leaves the real catalogue intact |

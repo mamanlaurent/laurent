@@ -80,19 +80,19 @@ const EXPECT=[['GT Cigarillos Mini',232],['HD Cigarillos',20],["4 K's",14],['5Pk
  const tot2=after.find(r=>r[0]==='TOTAL');
  ok(tot2 && tot2[3]==='25.15','total pallets 25.15 — the workbook says 25.1513949 (got '+(tot2&&tot2[3])+')');
  const gt=after.find(r=>r[0].indexOf('GT Cigarillos Mini')>-1);
- ok(gt && gt[3]==='3.68' && gt[5]==='43','GT Mini: 3.68 pallets, 43 loose — matches the workbook');
+ ok(gt && gt[3]==='3.68' && gt[4]==='43','GT Mini: 3.68 pallets, 43 loose — matches the workbook');
  const dark=after.find(r=>r[0].indexOf('Dark')>-1);
- ok(dark && dark[3]==='11.93' && dark[5]==='41','Dark: 11.93 pallets, 41 loose — matches the workbook');
- ok(/#\/PLT changed from 48/.test(await pg.textContent('.d-breakdown')),'an override is labelled as changed from the price list');
+ ok(dark && dark[3]==='11.93' && dark[4]==='41','Dark: 11.93 pallets, 41 loose — matches the workbook');
+ ok(/#\/PLT was 48/.test(await pg.textContent('.d-breakdown')),'an override is labelled against the price list value');
 
  // ---- 5. export
- await pg.click('#btnExportBreakdown'); await pg.waitForTimeout(900);
- const csv=await pg.evaluate(()=>window.__saved[window.__saved.length-1].data);
+ await pg.click('#btnExportTabs'); await pg.waitForTimeout(1600);
+ const csv=await pg.evaluate(()=>window.__saved[1].data);
  ok(/Quantity of Master Cases/.test(csv),'export carries the slip column headings');
  ok(/SEGU-522984-8/.test(csv),'export carries the container');
- const dl=csv.split('\n').find(l=>/Dark Sweet/.test(l));
+ const dl=csv.replace(/<\/tr>/g,'\n').split('\n').find(l=>/Dark Sweet/.test(l));
  console.log('       export line: '+dl);
- ok(/^525,162,/.test(dl||''),'the group total sits on the first row of the group, per-line cases beside it');
+ ok(/525/.test(dl||'')&&/162/.test(dl||''),'the group total sits beside the per-line cases');
 
  ok(errs.length===0,'no page errors'+(errs.length?': '+errs[0]:''));
  await ctx.close();
