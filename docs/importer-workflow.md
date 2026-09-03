@@ -97,12 +97,44 @@ margin        = tab4 total − tab3 total               1,175
 The "Shipping & Handling" line on tab 4 is not a cost — it is the balancing figure that
 makes the customer's total land on the HA total plus the intended margin.
 
-## Open questions before building the pricing half
+## The workflow, as the customer runs it today
 
-1. Where does `boxesPerPallet` really come from when it differs from the price list?
-2. Is the margin (1,175) set by hand per shipment, or derived?
-3. Are bank 25 / wire 75 always those figures?
-4. Is `No:` (6514) a running sequence the system should assign?
+Confirmed against the previous system's own outputs (a `TRK-8006` packing slip, a customer
+invoice, and its shipment list).
+
+**Step 1 — upload the pair.** The importer's packing slip and invoice go in together. That
+is enough to produce: the re-headed packing slip, the grouped category breakdown, the
+pallet split, and both invoices at their two price levels.
+
+**Step 2 — come back later and finish it.** The figures that are not knowable on day one —
+shipping, freight, FET fees, tariffs, wire fees, taxes — are entered against the saved
+shipment afterwards, and the two invoices finalise. This is why the tab 3 / tab 4 fee rows
+exist as blanks: they are a second visit, not a missing import.
+
+So a shipment is a **record with a lifecycle**, not a one-shot conversion.
+
+## What the previous system did around the conversion
+
+| Feature | Evidence |
+|---|---|
+| Shipment list | `Tracking Number, PO Number, Customer Name/Phone/Email/Address, Date, Status, Edit/Delete` — searchable, paginated |
+| Tracking number | Its own key, `TRK-####`, distinct from the PO and the invoice number |
+| Invoice number | `INV-#######`, assigned by the system |
+| Status | `Unpaid` / paid — accounts receivable |
+| Customer invoice PDF | Needmaj letterhead, grouped lines, `TARIFFS`, `SubTotal`, `Shipping & Handling`, `Grand Total`, wiring instructions, "make all checks payable to" |
+| Packing slip PDF | Multi-page, header repeated per page, `TOTAL` row, then Cigars/Wrappers quantity and Net/Gross weight in Kg |
+| Email | The customer invoice is sent to the client from inside the system |
+
+Its packing-slip output carries no pallet columns — the pallet split lives elsewhere in
+that system, matching the customer's tab 2.
+
+## Still open
+
+1. Where does `boxesPerPallet` come from when it differs from the price list? (The operator
+   overrode it on three of eight groups.)
+2. Is the margin (1,175) hand-set per shipment, or derived?
+3. Is `No:` (6514) a running sequence the system should assign, alongside the tracking and
+   invoice numbers?
 
 ## Known quirks in the sample workbook
 
